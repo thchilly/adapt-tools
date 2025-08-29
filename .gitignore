@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# macOS / Editor files
+*.DS_Store
+.vscode/
+.idea/
+
+# Data we don’t want on GitHub
+data/master/
+data/backups/
+mysql_data/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Docker volumes
+/adapt-tools_mysql_data/
+
+# Logs
+*.log
+
+# Backups
+data/backups/
