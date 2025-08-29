@@ -7,6 +7,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 import streamlit as st
+import re
 
 # ---------- SITE & THEME ----------
 st.set_page_config(
@@ -245,6 +246,10 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+# Simple slugify helper for generating stable widget keys
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+
 def tool_card_html(tool: pd.Series, badges: dict[str, dict[int, list[str]]]) -> str:
     # img_path = tool_image_path(tool["tool_id"])
     # if not img_path or not Path(img_path).exists():
@@ -1229,6 +1234,7 @@ def sidebar_filters(tools_df: pd.DataFrame):
     geo_scopes: set[str] = set()
     geo_areas: set[str] = set()
 
+
     st.sidebar.header("Tool Basics")
     st.sidebar.markdown('New here? See the **[Filter Guide](?page=guide)** for explanations.', unsafe_allow_html=True)
 
@@ -1240,7 +1246,7 @@ def sidebar_filters(tools_df: pd.DataFrame):
         for label, ref in items:
             # 1) Search box
             if label == "_SEARCH_":
-                search_q = st.sidebar.text_input("Search tool", "", help="Find tools by name. Use the filters below to refine results.")
+                search_q = st.sidebar.text_input("Search tool", "", key="flt_search", help="Find tools by name. Use the filters below to refine results.")
                 continue
 
             # Area Scope
@@ -1248,7 +1254,7 @@ def sidebar_filters(tools_df: pd.DataFrame):
                 try:
                     area_df = load_area_table()
                     scopes = sorted(area_df["scope"].dropna().unique().tolist(), key=lambda x: x.lower())
-                    chosen = st.sidebar.multiselect("Area Scope", options=scopes, default=[], help=HELP_TEXTS.get("Area Scope"))
+                    chosen = st.sidebar.multiselect("Area Scope", options=scopes, default=[], key="flt_area_scope", help=HELP_TEXTS.get("Area Scope"))
                     geo_scopes = set(chosen)
                 except Exception as e:
                     st.sidebar.warning(f"Area Scope: {e}")
@@ -1261,7 +1267,7 @@ def sidebar_filters(tools_df: pd.DataFrame):
                     if geo_scopes:
                         area_df = area_df[area_df["scope"].isin(geo_scopes)]
                     names = sorted(area_df["name"].dropna().unique().tolist(), key=lambda x: x.lower())
-                    chosen = st.sidebar.multiselect("Area (Names)", options=names, default=[], help=HELP_TEXTS.get("Area (Names)"))
+                    chosen = st.sidebar.multiselect("Area (Names)", options=names, default=[], key="flt_area_names", help=HELP_TEXTS.get("Area (Names)"))
                     geo_areas = set(chosen)
                 except Exception as e:
                     st.sidebar.warning(f"Area (Names): {e}")
@@ -1273,8 +1279,9 @@ def sidebar_filters(tools_df: pd.DataFrame):
                     col = ref
                     opts = options_from_tools_column(col)
                     # For Multi-language Support, show simple choices if present (Yes/No)
-                    ms_default = []
-                    chosen = st.sidebar.multiselect(label, options=opts, default=ms_default, help=HELP_TEXTS.get(label))
+                    # Use explicit key for widget
+                    key = f"flt_{_slug(label)}"
+                    chosen = st.sidebar.multiselect(label, options=opts, default=[], key=key, help=HELP_TEXTS.get(label))
                     selections[label] = set(chosen)
                 except Exception as e:
                     st.sidebar.warning(f"{label}: {e}")
@@ -1287,16 +1294,24 @@ def sidebar_filters(tools_df: pd.DataFrame):
                 df = load_filter_table(tbl)
                 tables[label] = df
                 options = sorted(df["label"].dropna().unique().tolist())
-                chosen = st.sidebar.multiselect(label, options=options, default=[], help=HELP_TEXTS.get(label))
+                key = f"flt_{_slug(label)}"
+                chosen = st.sidebar.multiselect(label, options=options, default=[], key=key, help=HELP_TEXTS.get(label))
                 selections[label] = set(chosen)
             except Exception as e:
                 st.sidebar.warning(f"{label}: {e}")
                 selections[label] = set()
                 tables[label] = pd.DataFrame(columns=["tool_id", "label"])
 
-    # Reset button
-    if st.sidebar.button("Clear all filters"):
-        st.experimental_rerun()
+
+    # ---- Clear-all must run after all widgets instantiate ----
+    clear_clicked = st.sidebar.button("Clear all filters", key="btn_clear_all")
+    if clear_clicked:
+        # remove our filter-related widget state keys BEFORE widgets are created
+        for k in list(st.session_state.keys()):
+            if k.startswith("flt_"):
+                st.session_state.pop(k, None)
+        # force a fresh run where widgets will be built with empty state
+        st.rerun()
 
     geo = {"scopes": geo_scopes, "areas": geo_areas}
     return selections, tables, search_q, geo
