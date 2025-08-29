@@ -3,6 +3,7 @@ import os
 from typing import List, Dict, Tuple
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 # -------- CONFIG (reads from env, with safe defaults for local dev) --------
 DB_USER = os.getenv("DB_USER", "futuremed")
@@ -82,8 +83,15 @@ def load_excel(path: str) -> pd.DataFrame:
     return df
 
 def make_engine():
-    url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    return create_engine(url, pool_pre_ping=True)
+    db_url = URL.create(
+        drivername="mysql+pymysql",
+        username=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=int(DB_PORT) if str(DB_PORT).isdigit() else None,
+        database=DB_NAME,
+    )
+    return create_engine(db_url, pool_pre_ping=True)
 
 def drop_and_create_schema(engine):
     with engine.begin() as con:

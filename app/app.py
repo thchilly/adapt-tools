@@ -5,6 +5,7 @@ from html import escape
 
 import pandas as pd
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 import streamlit as st
 
 # ---------- SITE & THEME ----------
@@ -707,9 +708,15 @@ DB_HOST = os.getenv("DB_HOST", "mysql")
 DB_PORT = os.getenv("DB_PORT", "3306")
 DB_NAME = _need("DB_NAME")
 
-engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+db_url = URL.create(
+    drivername="mysql+pymysql",
+    username=DB_USER,
+    password=DB_PASSWORD,
+    host=DB_HOST,
+    port=int(DB_PORT) if str(DB_PORT).isdigit() else None,
+    database=DB_NAME,
 )
+engine = create_engine(db_url, pool_pre_ping=True)
 
 # ---------- DATA LOADERS ----------
 @st.cache_data(ttl=300)
