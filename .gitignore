@@ -30,3 +30,7 @@ mysql_data/
 
 # Backups
 data/backups/
+
+# Pre-processed image data
+/public/assets/adapt-tools-images-temp/
+/public/assets/tools_new/
