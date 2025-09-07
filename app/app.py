@@ -2,6 +2,7 @@ import os
 import textwrap
 from pathlib import Path
 from html import escape
+from datetime import datetime
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -23,7 +24,7 @@ st.markdown(
       .block-container {max-width: 1250px; padding-right: 100px;}
       .tool-card { 
         border:1px solid #e6e6e6; border-radius:12px; background:#fff; 
-        height: 400px; /* fixed card height for uniform boxes */
+        height: 440px; /* fixed card height for uniform boxes */
         display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch;
         box-sizing: border-box;
         padding: 0; /* image should touch the card border */
@@ -42,7 +43,7 @@ st.markdown(
       .back-link a {text-decoration:none;}
 
       /* --- Grid polish --- */
-      .tool-image { width:100%; height:200px; object-fit:cover; border-radius:12px 12px 0 0; display:block; }
+      .tool-image { width:100%; height:240px; object-fit:cover; border-radius:12px 12px 0 0; display:block; }
       .tool-body { padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px; flex:1; }
       .tool-title-wrap {
         min-height: 60px; /* room for ~3 lines at ~1.1rem */
@@ -695,6 +696,10 @@ HERO_BANNER_URL = f"{STATIC_ASSETS}/banner.jpg"
 PLACEHOLDER_URL = f"{STATIC_ASSETS}/placeholder.png"
 TOOLS_URL_BASE = f"{STATIC_ASSETS}/tools"
 TOOL_BANNERS_URL_BASE = f"{STATIC_ASSETS}/tool_banners"
+# Footer assets
+FOOTER_COST_URL = f"{STATIC_ASSETS}/footer/COST_LOGO_mediumgrey_transparentbackground.png"
+FOOTER_EU_URL   = f"{STATIC_ASSETS}/footer/Funded-by-the-European-Union.png"
+
 
 # ---------- HEADER / BANNER CONFIG ----------
 BANNER_HEIGHT_PX = 200  # change to make the banner taller/shorter
@@ -1055,6 +1060,111 @@ def ensure_submissions_table():
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+def render_footer():
+    year = datetime.now().year
+    footer_text = (
+        "COST (European Cooperation in Science and Technology) is a funding organisation for research and "
+        "innovation networks. Our Actions help connect research initiatives across Europe and beyond and enable "
+        "researchers and innovators to grow their ideas in any science and technology field by sharing them with "
+        "their peers. COST Actions are bottom-up networks with a duration of four years that boost research, "
+        "innovation and careers."
+    )
+
+    css = """
+    .site-footer { margin-top: 48px; }
+    .site-footer .footer-top {
+      background: #821810; /* Merlot */
+      color: #fff;
+      padding: 28px 0;
+    }
+    .site-footer .footer-bottom {
+      background: #6d130d;
+      color: #fff;
+      padding: 10px 0;
+    }
+    .site-footer .inner {
+      max-width: 1250px; margin: 0 auto; padding: 0 28px;
+    }
+
+    .site-footer .row {
+      display: grid;
+      grid-template-columns: minmax(420px, 1fr) auto; 
+      gap: 28px 48px;
+      align-items: center;
+    }
+
+    .site-footer .foot-left {
+      max-width: 920px;           /* prevent sprawling text on ultra-wide screens */
+      line-height: 1.35;
+      font-size: 0.85rem;
+      font-weight: 300;
+      color: rgba(255,255,255,0.8);
+      text-align: justify;
+    }
+
+    .site-footer .foot-right {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: 28px; flex-wrap: wrap;
+    }
+
+    /* Make logos scale safely without overlapping text */
+    .site-footer .foot-logo {
+      max-height: 68px;      /* cap height */
+      height: auto;          /* keep aspect ratio */
+      width: auto;           /* keep aspect ratio */
+      object-fit: contain;
+      display: block;
+    }
+    .site-footer .foot-logo.eu { max-height: 64px; }
+
+    .site-footer .copyright { font-size: 0.95rem; opacity: 0.95; }
+
+    /* Stack text ABOVE logos on medium screens */
+    @media (max-width: 1200px) {
+      .site-footer .row {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .site-footer .foot-right {
+        justify-content: flex-start;
+      }
+    }
+
+    /* Extra tightening on small screens */
+    @media (max-width: 760px) {
+      .site-footer .footer-top { padding: 22px 0; }
+      .site-footer .inner { padding: 0 18px; }
+      .site-footer .foot-left { font-size: 0.92rem; }
+      .site-footer .foot-logo { max-height: 56px; }
+      .site-footer .foot-logo.eu { max-height: 52px; }
+      .site-footer .copyright { font-size: 0.9rem; }
+    }
+    """
+
+    html = f"""
+    <style>{css}</style>
+    <div class="site-footer">
+      <div class="footer-top">
+        <div class="inner">
+          <div class="row">
+            <div class="foot-left">
+              {footer_text}
+            </div>
+            <div class="foot-right">
+              <img class="foot-logo" src="{FOOTER_COST_URL}" alt="COST logo">
+              <img class="foot-logo eu" src="{FOOTER_EU_URL}" alt="Funded by the European Union">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <div class="inner copyright">FutureMed © {year}. All Rights Reserved.</div>
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def suggest_page():
     header_nav(active="Suggest")
     st.title("Suggest a CCA Tool")
@@ -1217,6 +1327,8 @@ def suggest_page():
             st.info("You can close this page or suggest another tool.")
         except Exception as e:
             st.error(f"Could not save your submission: {e}")
+
+    render_footer()
 
 
 def sidebar_filters(tools_df: pd.DataFrame):
@@ -1444,6 +1556,9 @@ def list_tools_page():
     cards_html = cards_html.replace("\n", "")
     st.markdown(f'<div class="card-grid">{cards_html}</div>', unsafe_allow_html=True)
 
+    st.markdown("")  # tiny spacer if you want
+    render_footer()
+
 
 def team_page():
     header_nav(active="Team")
@@ -1456,6 +1571,7 @@ def team_page():
         We can list coordinators, contributors, and link to their affiliations here.
         """
     )
+    render_footer()
 
 
 
@@ -1471,6 +1587,8 @@ def contact_page():
         - Web: https://futuremedaction.eu/en/  
         """
     )
+
+    render_footer()
 
 
 # ---------- GUIDE PAGE ----------
@@ -1519,6 +1637,9 @@ def guide_page():
         - Combine *Output Type* and *Accessibility* to quickly find tools that match the way you prefer to work.
         """
     )
+
+    render_footer()
+
 
 
 def tool_detail_page(tool_id: int):
@@ -1632,6 +1753,8 @@ def tool_detail_page(tool_id: int):
 
     st.markdown("---")
     st.markdown('<div class="back-link">↩︎ <a href="?page=tools">Back to all tools</a></div>', unsafe_allow_html=True)
+
+    render_footer()
 
 
 def main():
