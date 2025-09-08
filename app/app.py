@@ -119,67 +119,75 @@ st.markdown(
         padding-top: 3rem !important; /* was 5rem */
       }
 
-      /* Floating "Suggest a tool!" button (appears after delay) */
-      .fab-suggest {
-        position: fixed; /* float over the whole app */
-        right: 22px; bottom: 22px;
-        z-index: 2000;
-        background: var(--merlot-red); color:#fff; font-weight:700;
-        padding: 12px 16px; border-radius: 999px; text-decoration:none;
-        box-shadow: 0 6px 18px rgba(0,0,0,.18);
-        transition: transform 120ms ease, box-shadow 160ms ease, opacity 200ms ease;
-        opacity: 0; pointer-events: none;
-        animation: fmFadeIn 500ms ease 3s forwards; /* show after 3s */
-      }
-      @keyframes fmFadeIn { to { opacity: 0.96; pointer-events: auto; } }
-      .fab-suggest:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 10px 26px rgba(0,0,0,.22); }
-      .fab-suggest:link, .fab-suggest:visited { color:#fff; }
+      /* Floating "Suggest a tool!" button — delayed reveal (3s), accessible, with merlot outline */
+      .fab-suggest{
+        position: fixed;
+        right: 22px; 
+        bottom: 22px;
+        z-index: 40000;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
 
-      /* Floating "Suggest a tool!" button — never underline */
-      .stApp a.fab-suggest,
-      .stApp a.fab-suggest:link,
-      .stApp a.fab-suggest:visited,
-      .stApp a.fab-suggest:hover,
-      .stApp a.fab-suggest:active,
-      .stApp a.fab-suggest:focus {
-        position: fixed !important;
-        right: 22px !important;
-        bottom: 22px !important;
-        z-index: 2000 !important;
-      
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-      
-        background: var(--merlot-red) !important;
-        color: #fff !important;
-        font-weight: 700 !important;
-        padding: 12px 16px !important;
-        border-radius: 999px !important;
-      
+        /* Brand styling: off‑white fill, merlot text + outline */
+        background: #fff;
+        color: var(--merlot-red);
+        border: 3px solid var(--merlot-red);
+        box-sizing: border-box;
+        border-radius: 999px;
+        text-decoration: none;
+        padding: 12px 16px;
+        font-weight: 600;
+
+        /* Subtle elevation */
+        box-shadow: 0 6px 18px rgba(0,0,0,.14);
+
+        /* Start hidden/inactive; become visible after delay via keyframes */
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(2px) scale(.98);
+        transition: transform 140ms ease, box-shadow 160ms ease, background-color 120ms ease;
+        will-change: transform, box-shadow;
+
+        animation: fm-fab-reveal .45s ease-out 3s forwards;
+      }
+
+      /* Ensure anchor states don't turn it blue */
+      .fab-suggest:link,
+      .fab-suggest:visited,
+      .fab-suggest:hover,
+      .fab-suggest:active {
+        color: var(--merlot-red) !important;
         text-decoration: none !important;
-        border: none !important;
-        border-bottom: 0 !important;
-        outline: none !important;
-      
-        box-shadow: 0 6px 18px rgba(0,0,0,.18) !important;
-        transition: transform 120ms ease, box-shadow 160ms ease, opacity 200ms ease !important;
-      
-        opacity: 0 !important;
-        pointer-events: none !important;
-        animation: fmFadeIn 500ms ease 3s forwards !important; /* show after 3s */
       }
-      @keyframes fmFadeIn { 
-        to { opacity: 0.96; pointer-events: auto; } 
+      .fab-suggest:hover{
+        transform: translateY(0px) scale(1.36);
+        box-shadow: 0 12px 12px rgba(0,0,0,.32);
+        text-decoration: none;
       }
-      .stApp a.fab-suggest:hover {
-        transform: translateY(-1px) scale(1.02) !important;
-        box-shadow: 0 10px 26px rgba(0,0,0,.22) !important;
+      .fab-suggest:focus{
+        outline: 3px solid rgba(130,24,16,.35); /* merlot focus ring */
+        outline-offset: 2px;
       }
-       
-       /* Guard against any global link underline rules inside markdown containers */
-       .stApp .element-container a.fab-suggest { text-decoration: none !important; border-bottom: 0 !important; }
+      /* Keyframes to reveal and activate clickability */
+      @keyframes fm-fab-reveal{
+        0%   { opacity: 0; pointer-events: none; transform: translateY(6px) scale(.98); }
+        100% { opacity: .96; pointer-events: auto; transform: translateY(0) scale(1); }
+      }
+
+      /* Respect users who prefer reduced motion: no animation, show immediately */
+      @media (prefers-reduced-motion: reduce){
+        .fab-suggest{
+          animation: none;
+          opacity: .96;
+          pointer-events: auto;
+          transform: none;
+        }
+      }
+
+      /* Ensure no global link rules override the pill button */
+      .stApp a.fab-suggest { text-decoration: none !important; }
       
       /* Brand primary buttons */
       .stButton > button { background: var(--merlot-red) !important; color:#fff !important; border: none !important; }
