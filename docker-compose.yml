@@ -16,8 +16,8 @@ services:
       context: .
       dockerfile: Dockerfile.app
       args:
-        APP_VERSION: ${APP_VERSION}
-        GIT_SHA: ${GIT_SHA}
+        APP_VERSION: ${APP_VERSION:-dev}
+        GIT_SHA: ${GIT_SHA:-local}
     container_name: adapt-app
     env_file:
       - ./.env
@@ -36,6 +36,7 @@ services:
       - ./public:/app/public    
       - ./data:/app/data:ro
       - ./app/.streamlit:/home/appuser/.streamlit:ro
+      - ./data/submissions:/app/submissions:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8501/_stcore/health || exit 1"]
       interval: 10s
@@ -45,7 +46,9 @@ services:
     expose:
       - "8501"
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
+
 
   mysql:
     image: mysql:8.0

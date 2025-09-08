@@ -15,8 +15,8 @@ venv/
 .idea/
 
 # Data we don’t want on GitHub
-data/master/
-data/backups/
+/data/master/
+/data/backups/
 mysql_data/
 
 # Streamlit secrets
@@ -29,8 +29,11 @@ mysql_data/
 *.log
 
 # Backups
-data/backups/
+/data/backups/
 
 # Pre-processed image data
-/public/assets/adapt-tools-images-temp/
+public/assets/adapt-tools-images-temp/
 /public/assets/tools_new/
+
+# User tool submissions - need checking before sharing
+/data/submissions/

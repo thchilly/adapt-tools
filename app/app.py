@@ -9,6 +9,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 import streamlit as st
 import re
+import csv
+import json
+import uuid
+from urllib.parse import urlparse
 
 # ---------- SITE & THEME ----------
 st.set_page_config(
@@ -711,8 +715,117 @@ FOOTER_COST_URL = f"{STATIC_ASSETS}/footer/COST_LOGO_mediumgrey_transparentbackg
 FOOTER_EU_URL   = f"{STATIC_ASSETS}/footer/Funded-by-the-European-Union.png"
 
 
+# ---------- SUBMISSIONS STORAGE ----------
+# Where user suggestions (pending moderation) are stored as CSV/JSON files.
+# This path should be a mounted volume (see docker-compose) so it persists.
+SUBMIT_DIR = Path(os.getenv("SUBMISSIONS_DIR", "/app/submissions")).resolve()
+
 # ---------- HEADER / BANNER CONFIG ----------
 BANNER_HEIGHT_PX = 200  # change to make the banner taller/shorter
+
+# ---------- SUGGESTION HELPERS ----------
+def sanitize_text(s: str, *, max_len: int = 2000) -> str:
+    """Basic sanitation for free text fields: strip, collapse whitespace, clamp length."""
+    if not isinstance(s, str):
+        s = str(s or "")
+    s = " ".join(s.strip().split())
+    return s[:max_len]
+
+def is_valid_url(u: str) -> bool:
+    """Allow only http/https URLs with a hostname."""
+    try:
+        p = urlparse(u.strip())
+        return p.scheme in ("http", "https") and bool(p.netloc)
+    except Exception:
+        return False
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+def is_valid_email(e: str) -> bool:
+    e = (e or "").strip()
+    return bool(_EMAIL_RE.match(e))
+
+def _flatten_for_csv(payload: dict) -> dict:
+    """Turn nested/list fields into simple strings suitable for CSV storage."""
+    flat = {}
+    for k, v in payload.items():
+        if isinstance(v, (list, tuple, set)):
+            flat[k] = "; ".join([sanitize_text(str(x)) for x in v if str(x).strip()])
+        else:
+            flat[k] = sanitize_text(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
+    return flat
+
+def save_submission_files(tool_name: str, link: str, payload: dict) -> Path:
+    """
+    Write a pair of files to SUBMIT_DIR in a schema aligned with the master Excel:
+      - {timestamp}_{uuid}.csv  (flat, ordered columns)
+      - {same}.json             (full original payload for moderators)
+
+    NOTE: We intentionally do **not** store contact emails until a GDPR/cookie
+    policy is in place. See `suggest_page()` for the commented widget.
+    """
+    SUBMIT_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    uid = uuid.uuid4().hex[:8]
+    base = SUBMIT_DIR / f"{ts}_{uid}"
+
+    # Ordered header matching the master Excel (placeholders stay empty if not provided)
+    headers = [
+        "tool_id",
+        "tool_name",
+        "link",
+        "tool_description",
+        "bullet1",
+        "bullet2",
+        "bullet3",
+        "user_groups",
+        "sectors",
+        "tool_types",
+        "target_scale_political",
+        "target_scale_physical",
+        "temporal_scale",
+        "temporal_resolution",
+        "methodological_approach",
+        "data_utilization",
+        "output_type",
+        "accessibility_and_usability",
+        "is_multi_language",
+        "languages",
+        "customizability",
+        "integration_capability",
+        "validation_and_reliability",
+        "cost",
+        "maintenance",
+        "support",
+        "primary_area_scope",
+        "primary_area_of_focus",
+        "notes",
+        # "contact_email",  # (GDPR/cookies pending) — intentionally omitted for now
+    ]
+
+    # Flatten list-like fields for CSV (semicolon-delimited), clamp/clean text
+    flat_payload = _flatten_for_csv({**payload, "tool_name": tool_name, "link": link})
+
+    # Build a single ordered row; ensure missing keys exist with empty string
+    row = {}
+    for key in headers:
+        if key == "tool_id":
+            row[key] = ""  # new submissions don't set an ID
+        else:
+            row[key] = sanitize_text(flat_payload.get(key, ""))
+
+    # Write CSV
+    csv_path = base.with_suffix(".csv")
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        writer.writerow(row)
+
+    # Write JSON (verbatim payload without email for now)
+    json_path = base.with_suffix(".json")
+    with json_path.open("w", encoding="utf-8") as f:
+        json.dump({"tool_name": tool_name, "link": link, **payload}, f, ensure_ascii=False, indent=2)
+
+    return base
 
 # ---------- DB CONNECTION ----------
 # Read credentials from environment (see .env / docker-compose.yml)
@@ -1077,17 +1190,12 @@ def options_for(table_name: str) -> list[str]:
 
 # Small DDL helper to ensure the Tool_Submissions table exists
 def ensure_submissions_table():
-    with engine.begin() as conn:
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS Tool_Submissions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            tool_name VARCHAR(255) NOT NULL,
-            link TEXT NOT NULL,
-            contact_email VARCHAR(255),
-            payload JSON
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
+    """
+    (Disabled) Left here for a future moderated-ingest pipeline that writes to MySQL.
+    For now, submissions are **not** written to the database; they are stored on disk
+    as CSV/JSON under SUBMIT_DIR and reviewed by moderators before any DB import.
+    """
+    return
 
 def render_footer():
     year = datetime.now().year
@@ -1208,7 +1316,17 @@ def render_footer():
 def suggest_page():
     header_nav(active="Suggest")
     st.title("Suggest a CCA Tool")
-    st.caption("Submitted tools are **reviewed by moderators** before appearing in the catalog. Fields with * are required.")
+    st.markdown(
+        """
+        <div style="margin-top:4px; margin-bottom:10px;">
+          This catalog prioritises <strong>findability through structured filters</strong>. To keep the database high‑quality and truly useful,
+          we ask contributors to provide <strong>complete metadata</strong> (who the tool is for, sectors, scales, methods, outputs, etc.).
+          Where a precise option isn’t available, choose <strong>Other</strong> and add details in the notes.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("Submitted tools are **reviewed by moderators** before appearing in the tool catalog. Fields with * are required.")
 
     # Preload options from mapping tables
     user_groups = options_for("Tool_UserGroup")
@@ -1264,50 +1382,185 @@ def suggest_page():
     cost_opts = with_other(cost_opts)
 
     with st.form("tool_suggestion_form", clear_on_submit=False):
+        # Make selectbox placeholders render muted (fallback for older Streamlit)
+        st.markdown(
+            "<style>div[data-baseweb='select'] span[data-placeholder='true']{color:#6b7280 !important;opacity:.9}</style>",
+            unsafe_allow_html=True,
+        )
+
         col1, col2 = st.columns(2)
+
+        st.caption(
+            "All fields are required unless explicitly marked optional. "
+            "Placeholders indicate whether a field accepts **one** value or **multiple**."
+        )
+
         with col1:
-            tool_name = st.text_input("Tool name *")
-            link = st.text_input("Tool URL *", placeholder="https://…")
+            tool_name = st.text_input(
+                "Tool name (official)",
+                help="Official product name as shown on the provider site."
+            )
+            link = st.text_input(
+                "Tool URL",
+                placeholder="https://…",
+                help="Must start with http:// or https://"
+            )
+            # (GDPR/cookies pending) — contact email intentionally not collected yet.
 
             st.markdown("**Tool Basics**")
-            ug = st.multiselect("User group(s)", options=user_groups)
+            ug = st.multiselect(
+                "User group(s)",
+                options=user_groups,
+                help=HELP_TEXTS.get("User Group"),
+                placeholder="Select one or more groups"
+            )
 
             st.markdown("**Focus & Applicability**")
-            sec = st.multiselect("Sector focus", options=sectors)
-            ttype = st.multiselect("Tool type", options=tool_types)
-            tscale_pol = st.multiselect("Target scale (political)", options=scale_pol)
-            tscale_phy = st.multiselect("Target scale (physical)", options=scale_phy)
+            sec = st.multiselect(
+                "Sector focus",
+                options=sectors,
+                help=HELP_TEXTS.get("Sector Focus"),
+                placeholder="Select one or more sectors"
+            )
+            ttype = st.multiselect(
+                "Tool type",
+                options=tool_types,
+                help=HELP_TEXTS.get("Tool Type"),
+                placeholder="Select one or more types"
+            )
+            tscale_pol = st.multiselect(
+                "Target scale (political)",
+                options=scale_pol,
+                help=HELP_TEXTS.get("Target Scale (Political)"),
+                placeholder="Select one or more political scales"
+            )
+            tscale_phy = st.multiselect(
+                "Target scale (physical)",
+                options=scale_phy,
+                help=HELP_TEXTS.get("Target Scale (Physical)"),
+                placeholder="Select one or more physical scales"
+            )
 
             st.markdown("**Technical specifications**")
-            tscale = st.multiselect("Temporal scale", options=temporal_scales)
-            tres = st.multiselect("Temporal resolution", options=temporal_res)
-            meth = st.multiselect("Methodological approach", options=methods)
-            dutil = st.multiselect("Data utilization", options=data_util)
+            tscale = st.multiselect(
+                "Temporal scale",
+                options=temporal_scales,
+                help=HELP_TEXTS.get("Temporal Scale"),
+                placeholder="Select one or more temporal scales"
+            )
+            tres = st.multiselect(
+                "Temporal resolution",
+                options=temporal_res,
+                help=HELP_TEXTS.get("Temporal Resolution"),
+                placeholder="Select one or more resolutions"
+            )
+            meth = st.multiselect(
+                "Methodological approach",
+                options=methods,
+                help=HELP_TEXTS.get("Methodological Approach"),
+                placeholder="Select one or more approaches"
+            )
+            dutil = st.multiselect(
+                "Data utilization",
+                options=data_util,
+                help=HELP_TEXTS.get("Data Utilization"),
+                placeholder="Select one or more data options"
+            )
 
         with col2:
             st.markdown("**Outputs & User Interaction**")
-            out = st.multiselect("Output type", options=outputs)
-            acc = st.selectbox("Accessibility & usability", options=[""] + access, index=0)
-            is_multi = st.selectbox("Multi-language support?", options=["", "Yes", "No"], index=0)
-            langs = st.multiselect("Languages (if applicable)", options=languages)
+            out = st.multiselect(
+                "Output type",
+                options=outputs,
+                help=HELP_TEXTS.get("Output Type"),
+                placeholder="Select one or more output types"
+            )
+            acc = st.selectbox(
+                "Accessibility & usability",
+                options=access,
+                index=None,
+                placeholder="Select exactly one option",
+                help=HELP_TEXTS.get("Accessibility & Usability")
+            )
+            is_multi = st.selectbox(
+                "Multi-language support?",
+                options=["Yes", "No"],
+                index=None,
+                placeholder="Select Yes or No",
+                help=HELP_TEXTS.get("Multi-language Support")
+            )
+            langs = st.multiselect(
+                "Languages (optional — list if multi‑language is Yes)",
+                options=languages,
+                help=HELP_TEXTS.get("Languages"),
+                placeholder="Choose languages (optional)"
+            )
 
             st.markdown("**Customization & Integration**")
-            cust = st.selectbox("Customizability", options=[""] + customizability_opts, index=0)
-            integ = st.selectbox("Integration capability", options=[""] + integration_opts, index=0)
+            cust = st.selectbox(
+                "Customizability",
+                options=customizability_opts,
+                index=None,
+                placeholder="Select exactly one option",
+                help=HELP_TEXTS.get("Customizability")
+            )
+            integ = st.selectbox(
+                "Integration capability",
+                options=integration_opts,
+                index=None,
+                placeholder="Select exactly one option",
+                help=HELP_TEXTS.get("Integration Capability")
+            )
 
             st.markdown("**Validation & Reliability**")
-            valid = st.selectbox("Validation & reliability", options=[""] + validation_opts, index=0)
+            valid = st.selectbox(
+                "Validation & reliability",
+                options=validation_opts,
+                index=None,
+                placeholder="Select exactly one option",
+                help=HELP_TEXTS.get("Validation & Reliability")
+            )
 
             st.markdown("**Cost & Support**")
-            cost = st.selectbox("Cost", options=[""] + cost_opts, index=0)
-            maint = st.multiselect("Maintenance", options=maintenance_opts)
-            supp = st.multiselect("Support", options=support_opts)
+            cost = st.selectbox(
+                "Cost",
+                options=cost_opts,
+                index=None,
+                placeholder="Select exactly one option",
+                help=HELP_TEXTS.get("Cost")
+            )
+            maint = st.multiselect(
+                "Maintenance",
+                options=maintenance_opts,
+                help=HELP_TEXTS.get("Maintenance"),
+                placeholder="Select one or more items"
+            )
+            supp = st.multiselect(
+                "Support",
+                options=support_opts,
+                help=HELP_TEXTS.get("Support"),
+                placeholder="Select one or more items"
+            )
 
             st.markdown("**Geography**")
-            scope = st.selectbox("Primary area scope", options=[""] + area_scopes, index=0)
-            areas = st.multiselect("Primary area(s)", options=area_names, help="Start typing to search. You can also leave this blank and describe below.")
-        
-        desc = st.text_area("Short description / notes for moderators (optional)", height=110)
+            scope = st.selectbox(
+                "Primary area scope",
+                options=area_scopes,
+                index=None,
+                placeholder="Select exactly one option",
+                help=HELP_TEXTS.get("Area Scope")
+            )
+            areas = st.multiselect(
+                "Primary area(s) (optional)",
+                options=area_names,
+                help="Pick one or more places (if listed). If a place is missing, leave this empty and note it below.",
+                placeholder="Pick places (optional)"
+            )
+
+        desc = st.text_area(
+            "Short description / notes for moderators (optional)",
+            height=110
+        )
 
         st.markdown("**Verification**")
         human_check = st.checkbox("I'm not a robot (temporary)")
@@ -1316,22 +1569,56 @@ def suggest_page():
 
     if submitted:
         errs = []
-        if not tool_name.strip():
+        tool_name = sanitize_text(tool_name, max_len=140)
+        link = link.strip()
+
+        # Basic required fields
+        if not tool_name:
             errs.append("Tool name is required.")
-        if not link.strip():
-            errs.append("Tool URL is required.")
+        if not is_valid_url(link):
+            errs.append("Tool URL must start with http(s) and include a host (e.g., https://example.org).")
         if not human_check:
             errs.append("Please confirm you're not a robot.")
+
+        # Require taxonomy coverage (multiselects must not be empty)
+        if not ug: errs.append("Please select at least one **User group**.")
+        if not sec: errs.append("Please select at least one **Sector focus**.")
+        if not ttype: errs.append("Please select at least one **Tool type**.")
+        if not tscale_pol: errs.append("Please select at least one **Target scale (political)**.")
+        if not tscale_phy: errs.append("Please select at least one **Target scale (physical)**.")
+        if not tscale: errs.append("Please select at least one **Temporal scale**.")
+        if not tres: errs.append("Please select at least one **Temporal resolution**.")
+        if not meth: errs.append("Please select at least one **Methodological approach**.")
+        if not dutil: errs.append("Please select at least one **Data utilization**.")
+        if not out: errs.append("Please select at least one **Output type**.")
+
+        # Require single-choice attributes
+        if not acc: errs.append("Please choose an **Accessibility & usability** level.")
+        if not is_multi: errs.append("Please indicate **Multi-language support** (Yes/No).")
+        if is_multi == "Yes" and not langs:
+            errs.append("Please list the **Languages** or change multi-language support to No.")
+
+        if not cust: errs.append("Please choose a **Customizability** level.")
+        if not integ: errs.append("Please choose an **Integration capability** level.")
+        if not valid: errs.append("Please choose a **Validation & reliability** status.")
+        if not cost: errs.append("Please choose a **Cost** category.")
+
+        if not maint: errs.append("Please select at least one **Maintenance** option.")
+        if not supp: errs.append("Please select at least one **Support** option.")
+
+        # Geography
+        if not scope:
+            errs.append("Please select a **Primary area scope**.")
+        # 'areas' can remain optional and be elaborated in notes
+
         if errs:
             for e in errs: st.error(e)
             return
 
-        ensure_submissions_table()
-
         # assemble payload
         payload = {
-            "tool_name": tool_name.strip(),
-            "link": link.strip(),
+            "tool_name": tool_name,
+            "link": link,
             "user_groups": ug,
             "sectors": sec,
             "tool_types": ttype,
@@ -1353,20 +1640,13 @@ def suggest_page():
             "support": supp,
             "primary_area_scope": scope,
             "primary_area_of_focus": areas,
-            "notes": desc.strip(),
+            "notes": sanitize_text(desc, max_len=2000),
         }
 
-        try:
-            import json
-            with engine.begin() as conn:
-                conn.execute(
-                    "INSERT INTO Tool_Submissions (tool_name, link, payload) VALUES (%s, %s, CAST(%s AS JSON))",
-                    (tool_name.strip(), link.strip(), json.dumps(payload))
-                )
-            st.success("Thank you! Your suggestion was submitted and will be reviewed by moderators.")
-            st.info("You can close this page or suggest another tool.")
-        except Exception as e:
-            st.error(f"Could not save your submission: {e}")
+        # Persist on disk only (moderation queue). Nothing goes to MySQL yet.
+        base = save_submission_files(tool_name, link, payload)
+        st.success("Thank you! Your suggestion was saved for moderator review.")
+        st.caption(f"Reference: `{base.name}`. Moderators will validate and import approved entries.")
 
     render_footer()
 
