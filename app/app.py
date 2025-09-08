@@ -728,6 +728,25 @@ db_url = URL.create(
 )
 engine = create_engine(db_url, pool_pre_ping=True)
 
+# ---------- APP VERSION ----------
+def _read_version() -> str:
+    # Prefer env injected by Docker build; fallback to VERSION file; finally a dev default
+    v = os.getenv("APP_VERSION", "").strip()
+    if v:
+        return v
+    try:
+        ver_path = (BASE_DIR / ".." / "VERSION").resolve()
+        return ver_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return "0.0.0-dev"
+
+def _read_rev() -> str:
+    rev = os.getenv("GIT_SHA", "").strip()
+    return rev[:7] if rev else ""
+
+APP_VERSION = _read_version()
+APP_REV = _read_rev()
+
 # ---------- DATA LOADERS ----------
 @st.cache_data(ttl=300)
 def load_tools() -> pd.DataFrame:
@@ -1085,7 +1104,14 @@ def render_footer():
     .site-footer .inner {
       max-width: 1250px; margin: 0 auto; padding: 0 28px;
     }
-
+    .site-footer .footer-bottom .inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .site-footer .version {
+      opacity: 0.75; font-size: 0.85rem;
+    }
     .site-footer .row {
       display: grid;
       grid-template-columns: minmax(420px, 1fr) auto; 
@@ -1141,6 +1167,7 @@ def render_footer():
     }
     """
 
+    version_str = APP_VERSION + (f" · {APP_REV}" if APP_REV else "")
     html = f"""
     <style>{css}</style>
     <div class="site-footer">
@@ -1158,7 +1185,10 @@ def render_footer():
         </div>
       </div>
       <div class="footer-bottom">
-        <div class="inner copyright">FutureMed © {year}. All Rights Reserved.</div>
+        <div class="inner">
+            <span class="copyright">FutureMed © {year}. All Rights Reserved.</span>
+            <span class="version">adapt-tools v{version_str}</span>
+        </div>
       </div>
     </div>
     """

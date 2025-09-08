@@ -15,6 +15,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.app
+      args:
+        APP_VERSION: ${APP_VERSION}
+        GIT_SHA: ${GIT_SHA}
     container_name: adapt-app
     env_file:
       - ./.env

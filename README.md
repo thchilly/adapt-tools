@@ -60,6 +60,8 @@ adapt-tools/
 ├─ nginx.conf
 ├─ requirements.txt
 ├─ .env.example               # example environment variables
+├─ VERSION                   # project version file
+├─ dev-build.sh              # build script that handles version injection
 └─ .gitignore
 ```
 
@@ -71,6 +73,14 @@ adapt-tools/
 
 - Docker Desktop / OrbStack / Colima
 - Git, Python not required on host
+
+---
+
+## Versioning
+
+The project version is tracked in the `VERSION` file located at the root of the repository. The provided `dev-build.sh` script reads this version and injects it into the Docker build process. The app footer displays both the current version and the git commit hash to help identify the running build.
+
+To update the project version, simply edit the `VERSION` file with the new version string before building the Docker images.
 
 ---
 
@@ -89,8 +99,10 @@ These variables are used by both the **app** (to connect) and **MySQL** (to crea
 
 ## 2) Start the stack
 
+Run the provided build script to ensure Docker images are rebuilt with the current version, then start the stack:
+
 ```bash
-docker compose up -d --build
+bash dev-build.sh && docker compose up -d
 ```
 
 - App (Streamlit) runs behind Nginx.
