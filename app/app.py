@@ -1694,7 +1694,8 @@ def tool_detail_page(tool_id: int):
 
     # Title and banner image (wide)
     st.title(str(row.get("tool_name", "Tool")))
-    st.markdown(f"<img class='tool-hero-banner' src='{tool_banner_url(int(row['tool_id']))}' loading='lazy' decoding='async'>", unsafe_allow_html=True)
+    # TODO: Tool banner temporarily disabled — uncomment after banner images are fixed.
+    # st.markdown(f"<img class='tool-hero-banner' src='{tool_banner_url(int(row['tool_id']))}' loading='lazy' decoding='async'>", unsafe_allow_html=True)
 
     # Build right-side badge pills from mapping tables (same scheme as cards)
     badges = load_badge_maps()
