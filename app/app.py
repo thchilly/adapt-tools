@@ -696,6 +696,8 @@ HERO_BANNER_URL = f"{STATIC_ASSETS}/banner.jpg"
 PLACEHOLDER_URL = f"{STATIC_ASSETS}/placeholder.png"
 TOOLS_URL_BASE = f"{STATIC_ASSETS}/tools"
 TOOL_BANNERS_URL_BASE = f"{STATIC_ASSETS}/tool_banners"
+TEAM_URL_BASE = f"{STATIC_ASSETS}/team"
+ICONS_URL_BASE = f"{STATIC_ASSETS}/icons"
 # Footer assets
 FOOTER_COST_URL = f"{STATIC_ASSETS}/footer/COST_LOGO_mediumgrey_transparentbackground.png"
 FOOTER_EU_URL   = f"{STATIC_ASSETS}/footer/Funded-by-the-European-Union.png"
@@ -1028,7 +1030,7 @@ def header_nav(active: str = "Tools",
         '<div class="topbar">'
         '  <div class="inner">'
         '    <div class="nav">'
-        f"      {nav_link('?page=tools', 'Tools', active=='Tools')}"
+        f"      {nav_link('?page=tools', 'Tool Catalog', active=='Tools')}"
         f"      {nav_link('?page=guide', 'Filter Guide', active=='Guide')}"
         f"      {nav_link('?page=suggest', 'Contribute', active=='Suggest')}"
         f"      <a href=\"https://futuremedaction.eu/en/\" target=\"_blank\">FutureMed</a>"
@@ -1594,13 +1596,172 @@ def team_page():
     header_nav(active="Team")
     render_fab_suggest(True)
     st.title("Team")
-    st.image(HERO_BANNER_URL, use_container_width=True)
     st.markdown(
         """
-        This is a placeholder Team page.  
-        We can list coordinators, contributors, and link to their affiliations here.
-        """
+        Our team combines expertise in research engineering, climate adaptation, and data curation. Together we designed and developed the Adapt Tools platform, integrating both technical infrastructure and structured cataloguing to make climate change adaptation tools more accessible and useful.
+        """,
+        unsafe_allow_html=True,
     )
+
+    # NOTE: Each person now specifies `role` and `org` separately (no "title" splitting).
+    # --- Team data (images should live in public/assets/team)
+    engineering_and_product = [
+        {
+            "name": "Athanasios Tsilimigkras",
+            "role": "Research Engineer",
+            "org": "Technical University of Crete",
+            "img": "athanasios_tsilimigkras.png",
+            "links": [
+                {"href": "https://www.linkedin.com/in/tsilimigkras/", "label": "LinkedIn"}
+            ],
+        },
+        {
+            "name": "Christian Pagé",
+            "role": "Research Engineer",
+            "org": "CERFACS",
+            "img": "christian_page.png",
+            "links": [
+                {"href": "https://www.linkedin.com/in/pagechristian/", "label": "LinkedIn"}
+            ],
+        },
+    ]
+
+    curation_and_taxonomy = [
+        {
+            "name": "Milica Tošić",
+            "role": "Research Assistant",
+            "org": "University of Belgrade",
+            "img": "milica_tosic.png",
+            "links": [
+                {"href": "https://www.linkedin.com/in/milica-tosic-203482213/", "label": "LinkedIn"}
+            ],
+        },
+        {
+            "name": "Irida Lazić",
+            "role": "Research Assistant",
+            "org": "University of Belgrade",
+            "img": "irida_lazic.png",
+            "links": [
+                {"href": "https://www.linkedin.com/in/irida-lazic-13057430/", "label": "LinkedIn"}
+            ],
+        },
+    ]
+
+    # Local LinkedIn icon
+    linkedin_icon_url = f"{ICONS_URL_BASE}/linkedin.svg"
+
+    def render_section(title: str, people: list[dict]) -> str:
+        cards = []
+        for p in people:
+            img_url = f"{TEAM_URL_BASE}/{p['img']}"
+            role = p.get("role", "")
+            org = p.get("org", "")
+
+            links_html = " ".join(
+                [
+                    f"<a class='ext' href='{escape(l['href'])}' target='_blank' rel='noopener'>"
+                    f"<img src='{linkedin_icon_url}' alt='LinkedIn' width='18' height='18'/>"
+                    f"<span>{escape(l['label'])}</span>"
+                    f"</a>"
+                    for l in p.get('links', [])
+                ]
+            )
+
+            # Order: name first, then role, then org, then links
+            card = (
+                "<div class='person-card'>"
+                f"  <img class='avatar' src='{img_url}' alt='{escape(p['name'])}' loading='lazy' decoding='async' />"
+                f"  <div class='p-name'>{escape(p['name'])}</div>"
+                f"  <div class='p-role'>{escape(role)}</div>"
+                f"  <div class='p-org'>{escape(org)}</div>"
+                f"  <div class='p-links'>{links_html}</div>"
+                "</div>"
+            )
+            cards.append(card)
+
+        grid = "<div class='people-grid'>" + "".join(cards) + "</div>"
+        # Insert divider after the section title, before the grid
+        return f"<h3 class='team-section'>{escape(title)}</h3><div class='section-divider'></div>" + grid
+
+    css = """
+    <style>
+      .team-section { 
+        margin: 30px 0 5px 0; 
+        text-align: center;
+        color: var(--merlot-red);
+      }
+
+      .section-divider {
+        width: 500px;
+        height: 2px;
+        background: var(--merlot-red);
+        margin: 2px auto 48px auto;
+        border-radius: 2px;
+        opacity: 0.5;
+      }
+
+      /* Centered, fixed-width card grid: taller cards, not full-bleed */
+      .people-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 320px));
+        gap: 42px 56px;                 /* a bit more vertical gap */
+        justify-content: center;         /* center the grid in the page */
+        align-items: start;
+        margin-bottom: 69px;
+      }
+
+      .person-card{
+        background:#fff; border:0px solid #eee; border-radius:12px;
+        box-shadow: 0 4px 14px rgba(0,0,0,.16);
+        padding:22px 18px 18px;
+        text-align:center;
+      }
+
+      .person-card .avatar{
+        width: 180px; height: 180px;    /* larger avatar */
+        border-radius: 50%;
+        object-fit: cover; object-position: center;
+        display:block; margin: 0 auto 12px auto; 
+        box-shadow: 0 2px 8px rgba(0,0,0,.15);
+      }
+
+      /* Name first, larger and bold */
+      .person-card .p-name {
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin: 8px 0 2px 0;
+      }
+      /* Role after name, regular font size */
+      .person-card .p-role {
+        font-weight: 400;
+        margin: 2px 0 2px 0;
+      }
+      /* Org after role, gray, italic, slightly smaller */
+      .person-card .p-org {
+        color: #666;
+        font-size: 0.9rem;
+        font-style: italic;
+        margin-bottom: 6px;
+      }
+
+      .person-card .p-links{
+        margin-top: 10px; display:flex; gap:10px; justify-content:center;
+      }
+      .person-card .p-links a.ext{
+        display:inline-flex; align-items:center; gap:6px;
+        padding:6px 10px; border-radius:8px; background:#f6f6f6; color:#333; text-decoration:none;
+      }
+      .person-card .p-links a.ext:hover{ background:#ececec; }
+      .person-card .p-links a.ext img{ display:block; }
+      .person-card .p-links a.ext span{ font-size: 0.92rem; }
+    </style>
+    """
+
+    html = css
+    html += render_section("Engineering & Product", engineering_and_product)
+    html += render_section("Catalog Curation & Taxonomy", curation_and_taxonomy)
+
+    st.markdown(html, unsafe_allow_html=True)
     render_footer()
 
 
@@ -1609,13 +1770,43 @@ def contact_page():
     header_nav(active="Contact")
     render_fab_suggest(True)
     st.title("Contact")
-    st.image(HERO_BANNER_URL, use_container_width=True)
+    # st.image(HERO_BANNER_URL, use_container_width=True)
     st.markdown(
         """
-        **Get in touch**  
-        - Email: info@futuremedaction.eu  
-        - Web: https://futuremedaction.eu/en/  
-        """
+        <style>
+          .contact-wrap { 
+            display:grid; grid-template-columns: 1fr 1fr; gap:28px; 
+            align-items:start; margin-top: 8px;
+          }
+          @media (max-width: 900px){
+            .contact-wrap { grid-template-columns: 1fr; }
+          }
+          .contact-card {
+            background:#fff; border:0px solid #eee; border-radius:12px; 
+            box-shadow: 0 4px 14px rgba(0,0,0,.16);
+            padding:18px 20px;
+          }
+          .contact-card h3 { margin: 0 0 6px 0; color: var(--merlot-red); }
+          .contact-card p { margin: 0 0 8px 0; }
+          .contact-card a { color: var(--merlot-red); text-decoration: none; }
+          .contact-card a:hover { text-decoration: underline; }
+        </style>
+        <div class="contact-wrap">
+          <div class="contact-card">
+            <h3>Get in touch</h3>
+            <p>For general enquiries regarding FutureMed and the Adapt Tools catalog offerings:</p>
+            <p><strong>Web:</strong> <a href="https://futuremedaction.eu/en/" target="_blank" rel="noopener">futuremedaction.eu</a></p>
+            <p><strong>Email:</strong> <a href="mailto:info@futuremedaction.eu">info@futuremedaction.eu</a></p>
+          </div>
+          <div class="contact-card">
+            <h3>Developer contact</h3>
+            <p>Questions about the website/app implementation, data ingestion, or deployments:</p>
+            <p><strong>GitHub:</strong>  <a href="https://github.com/thchilly/adapt-tools" target="_blank" rel="noopener">thchilly/adapt-tools</a></p>
+            <p><strong>Email:</strong> <a href="mailto:atsilimigkras1@tuc.gr">atsilimigkras1@tuc.gr</a></p>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     render_footer()
