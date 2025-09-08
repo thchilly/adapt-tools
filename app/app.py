@@ -1643,9 +1643,7 @@ def guide_page():
         st.subheader(title)
         for k in keys:
             st.markdown(f"### {k}")
-            if k in HELP_TEXTS:
-                st.markdown(f"<div class='muted'>{HELP_TEXTS[k]}</div>", unsafe_allow_html=True)
-
+            # Help text lines removed per instructions.
             details = FILTER_DETAILS.get(k, [])
             if details:
                 # bullet list with name — description
