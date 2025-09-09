@@ -10,7 +10,7 @@ This project was developed as part of the FutureMed COST Action during a short-t
 
 - Dynamic filters for quickly locating relevant adaptation tools.
 - Detailed pages for each tool with comprehensive information.
-- Suggestion form to contribute new tools or updates.
+- Suggestion form to contribute new tools or updates. User submissions are sanitized and saved as CSV files for moderation.
 - Image upload and management for tool illustrations.
 - MySQL backend ensuring robust data storage and retrieval.
 
@@ -41,19 +41,25 @@ adapt-tools/
 ├─ app/                       # Streamlit app + scripts
 │  ├─ app.py                 
 │  ├─ scripts/
-│  │  └─ build_db_from_excel.py
+│  │  ├─ build_db_from_excel.py
+│  │  └─ prepare_tool_assets.py
 │  └─ .streamlit/config.toml  # theme and Streamlit settings
 ├─ public/
 │  └─ assets/                 
 │     ├─ tools/               # {tool_id}.png thumbnails
 │     ├─ tool_banners/        # {tool_id}.png wide banners
-│     ├─ logo.png
-│     ├─ banner.jpg
+│     ├─ icons/
+│     ├─ adapt-tools-logo/
+│     ├─ footer/
+│     ├─ site_banner/
+│     │  ├─ futuremed_logo/logo.png
+│     │  └─ futuremed_banner/banner.jpg
 │     └─ placeholder.png
 ├─ data/
 │  ├─ samples/                # small sample dataset for demo
 │  │  └─ sample_tools.xlsx
-│  └─ master/                 # full Excel data (git-ignored)
+│  ├─ master/                 # full Excel data (git-ignored)
+│  └─ submissions/            # user submissions
 ├─ docs/                      # ARCHITECTURE, DEPLOY, ROADMAP
 ├─ sql/                       
 ├─ docker-compose.yml
@@ -93,6 +99,12 @@ cp .env.example .env
 # edit .env and set DB_NAME, DB_USER, DB_PASSWORD, MYSQL_ROOT_PASSWORD
 ```
 
+Also set:
+```
+TURNSTILE_SITE_KEY=your_site_key_here
+TURNSTILE_SECRET_KEY=your_secret_key_here
+```
+
 These variables are used by both the **app** (to connect) and **MySQL** (to create the DB/user).
 
 ---
@@ -102,15 +114,18 @@ These variables are used by both the **app** (to connect) and **MySQL** (to crea
 Run the provided build script to ensure Docker images are rebuilt with the current version, then start the stack:
 
 ```bash
-bash dev-build.sh && docker compose up -d
+bash dev-build.sh
 ```
 
-- App (Streamlit) runs behind Nginx.
-- Nginx serves at **http://localhost:8080/**
-- phpMyAdmin (optional) at **http://localhost:8081/**
+(or `bash dev-build.sh --clean` for a clean rebuild).
 
-Health checks:
-- App: `http://localhost:8080/_stcore/health` (should return `ok`)
+The `dev-build.sh` script performs the following:
+
+- Reads the current version from the `VERSION` file.
+- Optionally cleans up existing Docker images if `--clean` is passed.
+- Builds the Docker images with the version injected as a build argument.
+- Starts the Docker Compose stack in detached mode.
+- Prints helpful status messages and instructions for accessing the app and services.
 
 ---
 
@@ -160,8 +175,10 @@ docker compose exec \
 - Rebuild only the app image after code changes:
 
   ```bash
-  docker compose build app && docker compose up -d
+  bash dev-build.sh
   ```
+
+  (or `bash dev-build.sh --clean` for clean).
 
 - Re-run the importer with a different Excel:
 
@@ -169,6 +186,17 @@ docker compose exec \
   docker compose exec -e EXCEL_PATH=/app/data/samples/sample_tools.xlsx app \
     python app/scripts/build_db_from_excel.py
   ```
+
+---
+
+## Handling Submissions & Moderation
+
+User submissions from the suggestion form are sanitized and saved as CSV and JSON files in the `data/submissions` directory.
+
+- Submissions follow the same column alignment and schema as the master Excel file.
+- These submissions are not imported automatically into the MySQL database.
+- Moderators must review submissions, validate the content, and manually merge them into the master Excel file before running the importer.
+- This workflow ensures safety and prevents malicious content from entering the database.
 
 ---
 
