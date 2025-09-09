@@ -43,10 +43,80 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+# ---------- STATIC / ASSETS LAYOUT ----------
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+PUBLIC_DIR = (BASE_DIR / ".." / "public").resolve()
+ASSETS_DIR = PUBLIC_DIR / "assets"                 # public/assets
+TOOLS_DIR = ASSETS_DIR / "tools"                   # public/assets/tools/{tool_id}.png
+BANNERS_DIR = ASSETS_DIR / "tool_banners"          # public/assets/tool_banners/{tool_id}.png
+
+# ---------- STATIC URL BASE ----------
+# In Docker (behind Nginx), assets are served at /assets.
+# You can override at runtime (e.g., CDN or different mount) with STATIC_BASE.
+# Examples:
+#   STATIC_BASE=""              -> "/assets/..." (default; recommended in Compose)
+#   STATIC_BASE="https://cdn"   -> "https://cdn/assets/..."
+STATIC_BASE = os.getenv("STATIC_BASE", "").rstrip("/")
+STATIC_ASSETS = f"{STATIC_BASE}/assets" if STATIC_BASE else "/assets"
+
+# Common URLs
+AT_LOGO_URL = f"{STATIC_ASSETS}/adapt-tools-logo/adapt-tools_logo.svg"
+AT_LOGO_WIDE_URL = f"{STATIC_ASSETS}/adapt-tools-logo/adapt-tools_logo_wide.svg"
+LOGO_URL = f"{STATIC_ASSETS}/site_banner/futuremed_logo.png"
+HERO_BANNER_URL = f"{STATIC_ASSETS}/site_banner/futuremed_banner.jpg"
+PLACEHOLDER_URL = f"{STATIC_ASSETS}/placeholder.png"
+TOOLS_URL_BASE = f"{STATIC_ASSETS}/tools"
+TOOL_BANNERS_URL_BASE = f"{STATIC_ASSETS}/tool_banners"
+TEAM_URL_BASE = f"{STATIC_ASSETS}/team"
+ICONS_URL_BASE = f"{STATIC_ASSETS}/icons"
+# Footer assets
+FOOTER_COST_URL = f"{STATIC_ASSETS}/footer/COST_LOGO_mediumgrey_transparentbackground.png"
+FOOTER_EU_URL   = f"{STATIC_ASSETS}/footer/Funded-by-the-European-Union.png"
+
+
+# ---------- SUBMISSIONS STORAGE ----------
+# Where user suggestions (pending moderation) are stored as CSV/JSON files.
+# This path should be a mounted volume (see docker-compose) so it persists.
+SUBMIT_DIR = Path(os.getenv("SUBMISSIONS_DIR", "/app/submissions")).resolve()
+
+# ---------- HEADER / BANNER CONFIG ----------
+BANNER_HEIGHT_PX = 200  # change to make the banner taller/shorter
+
+
 st.markdown(
     """
     <style>
-      .block-container {max-width: 1250px; padding-right: 100px;}
+      /* Base container: mobile-first, no horizontal overflow */
+      html, body, .stApp, .main { overflow-x: hidden; }
+      .block-container {
+      max-width: 1250px;
+      padding-left: 16px;
+      padding-right: 16px;   /* no big right gutter on phones */
+      }
+
+      /* Hide Streamlit’s built-in header/menu/toolbar globally */
+      header[data-testid="stHeader"] { 
+        height: 0 !important; 
+        visibility: hidden !important; 
+        overflow: hidden !important; 
+      }
+      div[data-testid="stToolbar"] { 
+        display: none !important; 
+      }
+      /* Hide Streamlit status widget (Deploy/Running) as well */
+      [data-testid="stStatusWidget"]{ display:none !important; }
+      
+      /* (we already hide MainMenu/footer later, but keep it here too for robustness) */
+      #MainMenu { visibility: hidden !important; }
+      footer { visibility: hidden !important; }
+
+      /* Add generous right padding only on wide screens */
+      @media (min-width: 1200px){
+      .block-container { padding-right: 100px; }
+      }      
       .tool-card { 
         border:1px solid #e6e6e6; border-radius:12px; background:#fff; 
         height: 440px; /* fixed card height for uniform boxes */
@@ -94,31 +164,104 @@ st.markdown(
       .pill--scale { background: #c9a7ff; }    /* light purple */
       .pill--output { background: #ffcc99; }   /* light orange */
       .pill--cost { background: #c8d6e5; }     /* light grey-blue */
-      /* --- Fixed top navigation bar (white) --- */
+
+      /* --- Fixed top navigation bar --- */
+      :root{ --topbar-height: 106px; }
+      @media (min-width: 861px){ :root{ --topbar-height: 85px; } }
+
       .topbar {
-        position: fixed; top: 60px; left: 0; right: 0; z-index: 3000;
+        position: fixed; top: 0; left: 0; right: 0; z-index: 3000;
         background: #fff; border-bottom: 1px solid #ececec;
-        height: 55px; /* keep in sync with .nav-spacer */
+        height: var(--topbar-height);
       }
       .topbar .inner {
-        max-width: 1250px; margin: 0 auto; height: 100%; padding: 0 78px;
-        display:flex; align-items:center; justify-content:space-between; gap:16px;
+        max-width: 1250px; margin: 0 auto; height: 100%;
+        padding: 0 14px; display:flex; align-items:center; justify-content:space-between; gap:12px;
       }
-      /* left-side brand in the top bar */
-      .topbar .brand-left img{
-        height: 28px; display:block; filter: drop-shadow(0 0.5px 0.5px rgba(0,0,0,.12));
-      }
-      @media (min-width: 900px){
-        .topbar .brand-left img{ height: 44px; }
+      /* Desktop spacing */
+      @media (min-width: 861px){
+        .topbar .inner { padding: 0 78px; }
       }
 
+      /* Brand left (desktop) + brand center (mobile) */
+      .brand-left img{ height: 44px; display:block; filter: drop-shadow(0 .5px .5px rgba(0,0,0,.12)); }
+      .brand-center{ display:none; flex:1; text-align:center; }
+      .brand-center img{ height: 72px; display:inline-block; filter: drop-shadow(0 .5px .5px rgba(0,0,0,.12)); }
+
+      /* Desktop: show wide logo on the left; hide center logo */
+      @media (min-width: 861px){
+        .brand-left{ display:block; }
+        .brand-center{ display:none; }
+      }
+      /* Mobile: hide wide logo; show center small logo */
+      @media (max-width: 860px){
+        .brand-left{ display:none; }
+        .brand-center{ display:block; }
+      }
+
+      /* Desktop inline navigation */
       .topbar .nav { display:flex; align-items:center; gap:10px; }
       .topbar .nav a { text-decoration:none; color:#222; font-weight:600; padding:4px 20px; border-radius:18px; }
       .topbar .nav a:hover { background:#f3f3f3; }
       .topbar .nav a.active { background: var(--merlot-red); color:#fff; }
 
+      /* Mobile menu (hamburger) */
+      .mmenu-toggle{ display:none; }
+      .topbar .mmenu-btn{ display:none; }
+
+      /* Small screens: hide inline nav, show hamburger and center logo */
+      @media (max-width: 860px){
+        .topbar .nav{ display:none !important; }
+
+        .topbar .mmenu-btn{
+          display:inline-flex !important; z-index:3600;
+          align-items:center; justify-content:center;
+          width:40px; height:40px; border-radius:10px; border:1px solid #e5e5e5; background:#fff;
+          cursor:pointer;
+        }
+        .topbar .mmenu-btn img{ height: 22px; width:auto; display:block; }
+
+        /* Slide-down panel for links */
+        .mmenu-overlay{
+          display:none; position:fixed; z-index:3500; left:0; right:0;
+          top: var(--topbar-height); background:#fff;
+          border-top:1px solid #eee; box-shadow:0 10px 24px rgba(0,0,0,.12);
+          padding:8px 16px;
+        }
+        #mmenu:checked ~ .mmenu-overlay{ display:block; }
+        .mmenu-overlay a{ display:block; padding:14px 8px; font-weight:700; color:#222; text-decoration:none; border-bottom:1px solid #f2f2f2; }
+        .mmenu-overlay a:last-child{ border-bottom:0; }
+        .mmenu-close{ display:block; margin-top:6px; text-align:right; }
+      }
+      @media (min-width: 861px){ .mmenu-overlay{ display:none !important; } }
+
       /* Spacer to keep content below the fixed topbar */
-      .nav-spacer { height: 55px; }
+      .nav-spacer { height: var(--topbar-height); }
+
+      /* ===== Mobile sidebar toggle anchor (alignment only) ===== */
+      @media (max-width: 860px){
+        /* anchor region inside topbar for exact alignment */
+        .filter-anchor{ width:40px; height:40px; display:flex; align-items:center; justify-content:center; }
+      }
+      @media (min-width: 861px){
+        /* desktop: no sidebar toggle needed */
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="collapsedControl"]{ display:none !important; }
+      }
+
+      /* Sidebar link color */
+      section[data-testid="stSidebar"] a {
+        color: var(--merlot-red) !important;
+        font-weight: 600;
+        text-decoration: underline !important;
+      }
+      section[data-testid="stSidebar"] a:hover {
+        text-decoration: none !important;
+      }
+      /* Hide big sidebar logo on mobile (logo shows in topbar center) */
+      @media (max-width: 860px){
+        section[data-testid="stSidebar"] .sidebar-logo{ display:none !important; }
+      }
       /* --- Header / Hero banner --- */
       .site-header { position: relative; z-index: 1; }
       .hero {
@@ -233,27 +376,35 @@ st.markdown(
       }
 
 
-      /* Brand primary buttons */
-      .stButton > button { background: var(--merlot-red) !important; color:#fff !important; border: none !important; }
-
-      /* --- Lock Streamlit sidebar open & hide collapse control --- */
-      /* Keep the sidebar visible and prevent the translateX collapse */
-      section[data-testid="stSidebar"] {
-      transform: none !important;
-      visibility: visible !important;
-      min-width: 350px !important;
-      width: 350px !important;  /* adjust 300–360 to taste */
+      /* --- Sidebar behavior: lock open on desktop, collapsible on mobile --- */
+      
+      /* Desktop & large tablets: keep sidebar pinned open */
+      @media (min-width: 1000px){
+        section[data-testid="stSidebar"]{
+          transform: none !important;
+          visibility: visible !important;
+          min-width: 350px !important;
+          width: 350px !important;
+        }
+        /* hide the collapse button on large screens */
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="collapsedControl"]{
+          display: none !important;
+        }
       }
-
-      /* Add a tiny top padding so it doesn't feel glued under the topbar */
-      section[data-testid="stSidebar"] > div:first-child {
-      padding-top: 20px;
-      }
-
-      /* Hide the chevron/handle so the user cannot close it */
-      [data-testid="stSidebarCollapseButton"],
-      [data-testid="collapsedControl"] {
-      display: none !important;
+      
+      /* Phones & small tablets: allow Streamlit’s default collapsible sidebar */
+      @media (max-width: 999px){
+        /* let Streamlit handle transform/visibility; just keep a comfortable width */
+        section[data-testid="stSidebar"]{
+          min-width: 280px !important;
+          width: 280px !important;
+        }
+        /* make sure the hamburger/collapse control is visible */
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="collapsedControl"]{
+          display: inline-flex !important;
+        }
       }
 
       /* Brand button for external links */
@@ -295,10 +446,71 @@ st.markdown(
       .glance-group h5 { margin: 0 0 1px 0; font-size: 0.95rem; }
       .tool-highlights{ margin-top:22px; margin-bottom:30px; }
       .tool-highlights ul{ margin:6px 0 0 20px; }
+
+      /* --- Tool detail: mobile layout --- */
+      @media (max-width: 860px){
+        .tool-detail-split{ grid-template-columns: 1fr; gap: 20px; }
+        .tool-detail-left{ border-right: none; padding-right: 0; }
+        .tool-detail-right{ padding-left: 0; margin-top: 8px; }
+        .tool-detail-right h4{ margin-top: 6px; }
+      }
     </style>
     """,
     unsafe_allow_html=True
 )
+
+
+# ---- Icon CSS only (keep the big stylesheet untouched) ----
+st.markdown("""
+<style>
+  /* Make the sidebar toggle button look consistent in BOTH states on mobile:
+     - open state  : [data-testid="stSidebarCollapseButton"]
+     - closed state: [data-testid="collapsedControl"]
+     We pin it to the left, give it a rounded box + shadow to match the
+     hamburger on the right, and size the SVG to the same dimensions. */
+  @media (max-width: 860px){
+    /* Shared box styles + fixed alignment under our custom topbar */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"]{
+      position: fixed !important;
+      left: 16px !important;
+      top: calc(var(--topbar-height)/2 - 20px) !important; /* vertically center */
+      z-index: 5001 !important;
+
+      display: inline-flex !important;
+      align-items: center; justify-content: center;
+
+      width: 40px !important; height: 40px !important;
+      padding: 0 !important;
+      border-radius: 10px !important;
+      background: #fff !important;
+      border: 1px solid #e5e5e5 !important;
+      box-shadow: 0 4px 14px rgba(0,0,0,.14) !important;
+      outline: none !important;
+    }
+
+    /* Make the chevron SVG the same size as the hamburger icon */
+    [data-testid="stSidebarCollapseButton"] svg,
+    [data-testid="collapsedControl"] svg{
+      display: block !important;
+      width: 22px !important; height: 22px !important;
+    }
+
+    /* Ensure our hamburger on the right uses the same box style */
+    .topbar .mmenu-btn{
+      display:inline-flex !important; z-index:3600;
+      align-items:center; justify-content:center;
+      width:40px; height:40px; border-radius:10px; border:1px solid #e5e5e5; background:#fff;
+      box-shadow: 0 4px 14px rgba(0,0,0,.14);
+      cursor:pointer; padding:0; outline:none;
+    }
+    .topbar .mmenu-btn img{ height:22px; width:22px; display:block; }
+  }
+</style>
+""", unsafe_allow_html=True)
+
+
+
 # Simple slugify helper for generating stable widget keys
 def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
@@ -724,47 +936,6 @@ FILTER_DETAILS = {
     ],
 }
 
-# ---------- STATIC / ASSETS LAYOUT ----------
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent
-PUBLIC_DIR = (BASE_DIR / ".." / "public").resolve()
-ASSETS_DIR = PUBLIC_DIR / "assets"                 # public/assets
-TOOLS_DIR = ASSETS_DIR / "tools"                   # public/assets/tools/{tool_id}.png
-BANNERS_DIR = ASSETS_DIR / "tool_banners"          # public/assets/tool_banners/{tool_id}.png
-
-# ---------- STATIC URL BASE ----------
-# In Docker (behind Nginx), assets are served at /assets.
-# You can override at runtime (e.g., CDN or different mount) with STATIC_BASE.
-# Examples:
-#   STATIC_BASE=""              -> "/assets/..." (default; recommended in Compose)
-#   STATIC_BASE="https://cdn"   -> "https://cdn/assets/..."
-STATIC_BASE = os.getenv("STATIC_BASE", "").rstrip("/")
-STATIC_ASSETS = f"{STATIC_BASE}/assets" if STATIC_BASE else "/assets"
-
-# Common URLs
-AT_LOGO_URL = f"{STATIC_ASSETS}/adapt-tools-logo/adapt-tools_logo.svg"
-AT_LOGO_WIDE_URL = f"{STATIC_ASSETS}/adapt-tools-logo/adapt-tools_logo_wide.svg"
-LOGO_URL = f"{STATIC_ASSETS}/site_banner/futuremed_logo.png"
-HERO_BANNER_URL = f"{STATIC_ASSETS}/site_banner/futuremed_banner.jpg"
-PLACEHOLDER_URL = f"{STATIC_ASSETS}/placeholder.png"
-TOOLS_URL_BASE = f"{STATIC_ASSETS}/tools"
-TOOL_BANNERS_URL_BASE = f"{STATIC_ASSETS}/tool_banners"
-TEAM_URL_BASE = f"{STATIC_ASSETS}/team"
-ICONS_URL_BASE = f"{STATIC_ASSETS}/icons"
-# Footer assets
-FOOTER_COST_URL = f"{STATIC_ASSETS}/footer/COST_LOGO_mediumgrey_transparentbackground.png"
-FOOTER_EU_URL   = f"{STATIC_ASSETS}/footer/Funded-by-the-European-Union.png"
-
-
-# ---------- SUBMISSIONS STORAGE ----------
-# Where user suggestions (pending moderation) are stored as CSV/JSON files.
-# This path should be a mounted volume (see docker-compose) so it persists.
-SUBMIT_DIR = Path(os.getenv("SUBMISSIONS_DIR", "/app/submissions")).resolve()
-
-# ---------- HEADER / BANNER CONFIG ----------
-BANNER_HEIGHT_PX = 200  # change to make the banner taller/shorter
-
 # ---------- SUGGESTION HELPERS ----------
 def sanitize_text(s: str, *, max_len: int = 2000) -> str:
     """Basic sanitation for free text fields: strip, collapse whitespace, clamp length."""
@@ -1178,42 +1349,62 @@ def header_nav(active: str = "Tools",
         f"}}</style>"
     )
 
-    # Right-side nav link helper
     def nav_link(href: str, label: str, is_active: bool) -> str:
         cls = 'class="active"' if is_active else ""
         return f'<a href="{href}" {cls}>{label}</a>'
 
-    # Left brand in the topbar: show on every page except Tools (sidebar already shows the logo there)
     brand_left = (
         f'<a class="brand-left" href="?page=tools" title="Adapt Tools">'
         f'  <img src="{AT_LOGO_WIDE_URL}" alt="adapt tools logo" />'
         f'</a>'
     ) if active != "Tools" else '<span class="brand-left" aria-hidden="true"></span>'
 
-    topbar_html = (
-        '<div class="topbar">'
-        '  <div class="inner">'
-        f'    {brand_left}'
+    # desktop inline nav
+    desktop_nav = (
         '    <div class="nav">'
         f"      {nav_link('?page=tools', 'Tool Catalog', active=='Tools')}"
         f"      {nav_link('?page=guide', 'Filter Guide', active=='Guide')}"
         f"      {nav_link('?page=suggest', 'Contribute', active=='Suggest')}"
-        f"      <a href=\"https://futuremedaction.eu/en/\" target=\"_blank\">FutureMed</a>"
+        f'      <a href="https://futuremedaction.eu/en/" target="_blank">FutureMed</a>'
         f"      {nav_link('?page=team', 'Team', active=='Team')}"
         f"      {nav_link('?page=contact', 'Contact', active=='Contact')}"
         '    </div>'
+    )
+
+    # mobile hamburger (CSS checkbox hack)
+    mobile_toggle = (
+        '<input id="mmenu" class="mmenu-toggle" type="checkbox" />'
+        f'<label for="mmenu" class="mmenu-btn" aria-label="Open menu" title="Menu"><img src="{ICONS_URL_BASE}/menu.svg" alt="Menu"></label>'
+        '<div class="mmenu-overlay">'
+        f"  {nav_link('?page=tools', 'Tool Catalog', active=='Tools')}"
+        f"  {nav_link('?page=guide', 'Filter Guide', active=='Guide')}"
+        f"  {nav_link('?page=suggest', 'Contribute', active=='Suggest')}"
+        f'  <a href="https://futuremedaction.eu/en/" target="_blank">FutureMed</a>'
+        f"  {nav_link('?page=team', 'Team', active=='Team')}"
+        f"  {nav_link('?page=contact', 'Contact', active=='Contact')}"
+        '  <label for="mmenu" class="mmenu-close brand-btn" style="background:#f3f3f3;color:#222;">Close ✕</label>'
+        '</div>'
+    )
+
+    topbar_html = (
+        '<div class="topbar">'
+        '  <div class="inner">'
+        '    <div class="filter-anchor"></div>'
+        f'    <span class="brand-center"><img src="{AT_LOGO_URL}" alt="adapt tools"/></span>'
+        f'    {desktop_nav}'
+        f'    {mobile_toggle}'
         '  </div>'
         '</div>'
         '<div class="nav-spacer"></div>'
     )
 
-    # Hero banner (unchanged)
     brand_html = f'<img src="{LOGO_URL}" alt="FutureMed" />'
     hero_html = f"""
     <div class="hero">
       <div class="brand">{brand_html}</div>
     </div>
     """
+
     if show_hero:
         st.markdown(preload_and_style + '<div class="site-header">' + topbar_html + hero_html + '</div>', unsafe_allow_html=True)
     else:
@@ -1328,6 +1519,10 @@ def render_footer():
       .site-footer .foot-logo.eu { max-height: 52px; }
       .site-footer .copyright { font-size: 0.9rem; }
     }
+
+    /* Hide Streamlit footer and menu */
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
     """
 
     version_str = APP_VERSION + (f" · {APP_REV}" if APP_REV else "")
@@ -1720,7 +1915,7 @@ def sidebar_filters(tools_df: pd.DataFrame):
     # Sidebar logo at the very top
     st.sidebar.markdown(
         f"""
-        <div style="padding-top:10px; text-align:center; margin-bottom:28px; padding-left:0px;">
+        <div class="sidebar-logo" style="padding-top:10px; text-align:center; margin-bottom:28px; padding-left:0px;">
             <img src="{AT_LOGO_URL}" alt="Adapt Tools Logo" style="max-width:250px;">
         </div>
         """,
