@@ -13,6 +13,27 @@ import csv
 import json
 import uuid
 from urllib.parse import urlparse
+# import requests   # ← uncomment when enabling Turnstile
+
+# VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+# TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
+# TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
+
+def verify_turnstile(token: str) -> bool:
+    """
+    Validate Turnstile token with Cloudflare API.
+    """
+    if not token or not TURNSTILE_SECRET_KEY:
+        return False
+    try:
+        resp = requests.post(
+            VERIFY_URL,
+            data={"secret": TURNSTILE_SECRET_KEY, "response": token},
+            timeout=5
+        )
+        return resp.json().get("success", False)
+    except Exception:
+        return False
 
 # ---------- SITE & THEME ----------
 st.set_page_config(
@@ -79,11 +100,18 @@ st.markdown(
         background: #fff; border-bottom: 1px solid #ececec;
         height: 55px; /* keep in sync with .nav-spacer */
       }
-      /* center content within the same max width as the page */
       .topbar .inner {
-        max-width: 1250px; margin: 0 auto; height: 100%; padding: 0 18px;
-        display:flex; align-items:center; justify-content:flex-end; gap:10px;
+        max-width: 1250px; margin: 0 auto; height: 100%; padding: 0 78px;
+        display:flex; align-items:center; justify-content:space-between; gap:16px;
       }
+      /* left-side brand in the top bar */
+      .topbar .brand-left img{
+        height: 28px; display:block; filter: drop-shadow(0 0.5px 0.5px rgba(0,0,0,.12));
+      }
+      @media (min-width: 900px){
+        .topbar .brand-left img{ height: 44px; }
+      }
+
       .topbar .nav { display:flex; align-items:center; gap:10px; }
       .topbar .nav a { text-decoration:none; color:#222; font-weight:600; padding:4px 20px; border-radius:18px; }
       .topbar .nav a:hover { background:#f3f3f3; }
@@ -193,6 +221,18 @@ st.markdown(
       /* Ensure no global link rules override the pill button */
       .stApp a.fab-suggest { text-decoration: none !important; }
       
+
+      /* Sidebar link color */
+      section[data-testid="stSidebar"] a {
+        color: var(--merlot-red) !important;
+        font-weight: 600;
+        text-decoration: underline !important;
+      }
+      section[data-testid="stSidebar"] a:hover {
+        text-decoration: none !important;
+      }
+
+
       /* Brand primary buttons */
       .stButton > button { background: var(--merlot-red) !important; color:#fff !important; border: none !important; }
 
@@ -703,8 +743,10 @@ STATIC_BASE = os.getenv("STATIC_BASE", "").rstrip("/")
 STATIC_ASSETS = f"{STATIC_BASE}/assets" if STATIC_BASE else "/assets"
 
 # Common URLs
-LOGO_URL = f"{STATIC_ASSETS}/logo.png"
-HERO_BANNER_URL = f"{STATIC_ASSETS}/banner.jpg"
+AT_LOGO_URL = f"{STATIC_ASSETS}/adapt-tools-logo/adapt-tools_logo.svg"
+AT_LOGO_WIDE_URL = f"{STATIC_ASSETS}/adapt-tools-logo/adapt-tools_logo_wide.svg"
+LOGO_URL = f"{STATIC_ASSETS}/site_banner/futuremed_logo.png"
+HERO_BANNER_URL = f"{STATIC_ASSETS}/site_banner/futuremed_banner.jpg"
 PLACEHOLDER_URL = f"{STATIC_ASSETS}/placeholder.png"
 TOOLS_URL_BASE = f"{STATIC_ASSETS}/tools"
 TOOL_BANNERS_URL_BASE = f"{STATIC_ASSETS}/tool_banners"
@@ -1127,10 +1169,6 @@ def header_nav(active: str = "Tools",
                left_opacity: float = 0.35,
                right_opacity: float = 0.15,
                show_hero: bool = True):
-    """
-    Thin white sticky nav + (optional) hero banner below it.
-    The hero background is a gradient over the static banner image at /assets/banner.jpg.
-    """
     grad = f"linear-gradient(90deg, rgba({gradient_color},{left_opacity}), rgba({gradient_color},{right_opacity}))"
     preload_and_style = (
         f'<link rel="preload" as="image" href="{HERO_BANNER_URL}"/>'
@@ -1140,16 +1178,22 @@ def header_nav(active: str = "Tools",
         f"}}</style>"
     )
 
-    # Brand logo (served by Nginx)
-    brand_html = f'<img src="{LOGO_URL}" alt="FutureMed" />'
-
+    # Right-side nav link helper
     def nav_link(href: str, label: str, is_active: bool) -> str:
         cls = 'class="active"' if is_active else ""
         return f'<a href="{href}" {cls}>{label}</a>'
 
+    # Left brand in the topbar: show on every page except Tools (sidebar already shows the logo there)
+    brand_left = (
+        f'<a class="brand-left" href="?page=tools" title="Adapt Tools">'
+        f'  <img src="{AT_LOGO_WIDE_URL}" alt="adapt tools logo" />'
+        f'</a>'
+    ) if active != "Tools" else '<span class="brand-left" aria-hidden="true"></span>'
+
     topbar_html = (
         '<div class="topbar">'
         '  <div class="inner">'
+        f'    {brand_left}'
         '    <div class="nav">'
         f"      {nav_link('?page=tools', 'Tool Catalog', active=='Tools')}"
         f"      {nav_link('?page=guide', 'Filter Guide', active=='Guide')}"
@@ -1163,12 +1207,13 @@ def header_nav(active: str = "Tools",
         '<div class="nav-spacer"></div>'
     )
 
-    hero_html = """
+    # Hero banner (unchanged)
+    brand_html = f'<img src="{LOGO_URL}" alt="FutureMed" />'
+    hero_html = f"""
     <div class="hero">
       <div class="brand">{brand_html}</div>
     </div>
-    """.format(brand_html=brand_html)
-
+    """
     if show_hero:
         st.markdown(preload_and_style + '<div class="site-header">' + topbar_html + hero_html + '</div>', unsafe_allow_html=True)
     else:
@@ -1326,7 +1371,7 @@ def suggest_page():
         """,
         unsafe_allow_html=True,
     )
-    st.caption("Submitted tools are **reviewed by moderators** before appearing in the tool catalog. Fields with * are required.")
+    st.caption("Submitted tools are **reviewed by moderators** before appearing in the tool catalog.")
 
     # Preload options from mapping tables
     user_groups = options_for("Tool_UserGroup")
@@ -1563,6 +1608,12 @@ def suggest_page():
         )
 
         st.markdown("**Verification**")
+        # --- Cloudflare Turnstile widget placeholder ---
+        # To enable later:
+        # token = st.text_input("Turnstile token (hidden)", type="password")
+        # if not verify_turnstile(token):
+        #     errs.append("Please complete verification (Turnstile).")
+        # For now, we keep a simple temporary checkbox:
         human_check = st.checkbox("I'm not a robot (temporary)")
 
         submitted = st.form_submit_button("Submit suggestion")
@@ -1666,6 +1717,15 @@ def sidebar_filters(tools_df: pd.DataFrame):
     geo_scopes: set[str] = set()
     geo_areas: set[str] = set()
 
+    # Sidebar logo at the very top
+    st.sidebar.markdown(
+        f"""
+        <div style="padding-top:10px; text-align:center; margin-bottom:28px; padding-left:0px;">
+            <img src="{AT_LOGO_URL}" alt="Adapt Tools Logo" style="max-width:250px;">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.sidebar.header("Tool Basics")
     st.sidebar.markdown('New here? See the **[Filter Guide](?page=guide)** for explanations.', unsafe_allow_html=True)
