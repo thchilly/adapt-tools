@@ -1,4 +1,7 @@
-# Adapt Tools
+<p align="left">
+  <img src="public/assets/adapt-tools-logo/adapt-tools_logo_white.png" alt="Adapt Tools logo" width="400"/>
+</p>
+
 
 A dockerized Streamlit + MySQL web app to explore climate adaptation tools (FutureMed/COST Action).
 
