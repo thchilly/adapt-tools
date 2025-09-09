@@ -203,6 +203,67 @@ User submissions from the suggestion form are sanitized and saved as CSV and JSO
 
 ---
 
+## Routine Operations
+
+Maintainers typically need to perform the following routine tasks:
+
+- **Build or rebuild the Docker images** with the current version:
+
+  ```bash
+  bash dev-build.sh
+  ```
+
+  Use `--clean` for a full rebuild if necessary:
+
+  ```bash
+  bash dev-build.sh --clean
+  ```
+
+- **Seed or reseed the database** with the desired Excel file:
+
+  ```bash
+  docker compose exec \
+    -e EXCEL_PATH=/app/data/samples/sample_tools.xlsx \
+    app python app/scripts/build_db_from_excel.py
+  ```
+
+  Replace the path with your master Excel if needed.
+
+- **Restart the stack** to apply changes or recover services:
+
+  ```bash
+  docker compose restart
+  ```
+
+> Note: The Nginx and Certbot setup for TLS termination is a one-time configuration and does not need to be repeated with each rebuild or restart.
+
+---
+
+## Fetching User Submissions
+
+Moderators can fetch the submitted CSV and JSON files from the VPS by accessing the `data/submissions` directory where user submissions are stored.
+
+Common ways to retrieve these files include:
+
+- **Using `scp`** to securely copy files from the VPS to a local machine:
+
+  ```bash
+  scp user@your-vps:/path/to/adapt-tools/data/submissions/*.csv ./local-submissions/
+  scp user@your-vps:/path/to/adapt-tools/data/submissions/*.json ./local-submissions/
+  ```
+
+- **Using `rsync`** for syncing the submissions directory:
+
+  ```bash
+  rsync -avz user@your-vps:/path/to/adapt-tools/data/submissions/ ./local-submissions/
+  ```
+
+Replace `user@your-vps` and the path with your actual VPS user and directory.
+
+This allows moderators to review and manage submissions locally before merging them into the master Excel file.
+
+---
+
 ## Deployment (very short)
 
 - Bind Nginx to port **80/443** on a VPS.
