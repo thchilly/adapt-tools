@@ -12,36 +12,73 @@ import re
 import csv
 import json
 import uuid
+import time
 from urllib.parse import urlparse
-# import requests   # ← uncomment when enabling Turnstile
-
-# VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
-# TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
-# TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
-
-def verify_turnstile(token: str) -> bool:
-    """
-    Validate Turnstile token with Cloudflare API.
-    """
-    if not token or not TURNSTILE_SECRET_KEY:
-        return False
-    try:
-        resp = requests.post(
-            VERIFY_URL,
-            data={"secret": TURNSTILE_SECRET_KEY, "response": token},
-            timeout=5
-        )
-        return resp.json().get("success", False)
-    except Exception:
-        return False
+import requests
+import streamlit.components.v1 as components
+from streamlit.components.v1 import declare_component
+from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 
 # ---------- SITE & THEME ----------
 st.set_page_config(
-    page_title="FutureMed — Tools & Data",
-    page_icon="🧭",
+    page_title="FutureMed — Adapt Tools",
+    page_icon="/assets/adapt-tools-logo/favicon2.ico",  # use real favicon to avoid Streamlit boat/emoji flash
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
+
+
+
+VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
+# Turnstile tokens are short-lived. Require a fresh token at submit time.
+TURNSTILE_MAX_TOKEN_AGE_S = int(os.getenv("TURNSTILE_MAX_TOKEN_AGE_S", "120"))
+
+
+
+
+# # inject the Turnstile script only once
+# st.markdown("""
+# <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad" async defer></script>
+# <script>
+#   // This is called by the Turnstile script when it’s ready.
+#   window.onTurnstileLoad = function(){ /* noop; we render later */ };
+# </script>
+# """, unsafe_allow_html=True)
+
+def verify_turnstile(token: str, remote_ip: str | None = None) -> tuple[bool, dict]:
+    secret = os.getenv("TURNSTILE_SECRET_KEY", "")
+    if not token or not secret:
+        return False, {"reason": "missing token or secret"}
+
+    data = {
+        "secret": secret,
+        "response": token,
+    }
+    if remote_ip:
+        data["remoteip"] = remote_ip
+
+    try:
+        import requests
+        r = requests.post(VERIFY_URL, data=data, timeout=6)
+        j = r.json()
+        return bool(j.get("success")), j
+    except Exception as e:
+        return False, {"exception": str(e)}
+
+def get_query_param(name: str) -> str | None:
+    params = st.query_params
+    val = params.get(name)
+    if isinstance(val, list):
+        return val[0] if val else None
+    return val
+
+def clear_query_param(name: str):
+    params = st.query_params
+    if name in params:
+        del st.query_params[name]
+
 
 
 # ---------- STATIC / ASSETS LAYOUT ----------
@@ -76,14 +113,54 @@ ICONS_URL_BASE = f"{STATIC_ASSETS}/icons"
 FOOTER_COST_URL = f"{STATIC_ASSETS}/footer/COST_LOGO_mediumgrey_transparentbackground.png"
 FOOTER_EU_URL   = f"{STATIC_ASSETS}/footer/Funded-by-the-European-Union.png"
 
+# --- Favicon override (helps avoid brief Streamlit favicon flash) ---
+FAVICON_URL = f"{STATIC_ASSETS}/adapt-tools-logo/favicon2.ico"
+st.markdown(
+    "\n".join([
+        f'<link rel="icon" href="{FAVICON_URL}" type="image/x-icon" sizes="any">',
+        f'<link rel="shortcut icon" href="{FAVICON_URL}" type="image/x-icon">'
+    ]),
+    unsafe_allow_html=True
+)
+
+
+# Apple browser niceties
+st.markdown(
+    f'<link rel="apple-touch-icon" href="{STATIC_ASSETS}/adapt-tools-logo/favicon-180.png">',
+    unsafe_allow_html=True
+)
 
 # ---------- SUBMISSIONS STORAGE ----------
-# Where user suggestions (pending moderation) are stored as CSV/JSON files.
-# This path should be a mounted volume (see docker-compose) so it persists.
+# Keep submissions in the dedicated writable bind mount:
+# docker-compose maps ./data/submissions -> /app/submissions (rw)
 SUBMIT_DIR = Path(os.getenv("SUBMISSIONS_DIR", "/app/submissions")).resolve()
 
 # ---------- HEADER / BANNER CONFIG ----------
 BANNER_HEIGHT_PX = 200  # change to make the banner taller/shorter
+
+# ---------- APP VERSION ----------
+def _read_version() -> str:
+    # Prefer env injected by Docker build; fallback to VERSION file; finally a dev default
+    v = os.getenv("APP_VERSION", "").strip()
+    if v:
+        return v
+    try:
+        ver_path = (BASE_DIR / ".." / "VERSION").resolve()
+        return ver_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return "0.0.0-dev"
+
+def _read_rev() -> str:
+    rev = os.getenv("GIT_SHA", "").strip()
+    return rev[:7] if rev else ""
+
+APP_VERSION = _read_version()
+APP_REV = _read_rev()
+
+CF_TURNSTILE = declare_component(
+    "cf_turnstile",
+    url=f"{STATIC_ASSETS}/turnstile.html?v={APP_VERSION or 'dev'}"  # cache-bust via version
+)
 
 
 st.markdown(
@@ -175,12 +252,16 @@ st.markdown(
         height: var(--topbar-height);
       }
       .topbar .inner {
-        max-width: 1250px; margin: 0 auto; height: 100%;
-        padding: 0 14px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+        max-width: 1050px; margin: 0 auto; height: 100%;
+        padding: 0 16px; display:flex; align-items:center; justify-content:space-between; gap:12px;
       }
       /* Desktop spacing */
+      /* tighten the topbar so the logo lines up with the content column */
       @media (min-width: 861px){
-        .topbar .inner { padding: 0 78px; }
+        .topbar .inner {
+          padding-left: 0; 
+          padding-right: 28px;    /* keep some breathing room on the right */
+        }
       }
 
       /* Brand left (desktop) + brand center (mobile) */
@@ -204,6 +285,45 @@ st.markdown(
       .topbar .nav a { text-decoration:none; color:#222; font-weight:600; padding:4px 20px; border-radius:18px; }
       .topbar .nav a:hover { background:#f3f3f3; }
       .topbar .nav a.active { background: var(--merlot-red); color:#fff; }
+
+      /* Make the form submit button centered, merlot red, and with white text (override Streamlit theme) */
+      form[data-testid="stForm"] .stButton{
+        display: flex !important;
+        justify-content: center !important;
+        margin-top: 16px !important;
+      }
+      /* Target Streamlit's form submit button by its 'kind' attribute */
+      div.stButton > button[kind="secondaryFormSubmit"]{
+        background-color: var(--merlot-red) !important;
+        color: #fff !important;
+        font-weight: 600 !important;
+        border: none !important;
+        padding: 12px 28px !important;
+        min-width: 250px !important;
+        border-radius: 10px !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,.12) !important;
+        transition: transform 80ms ease, box-shadow 140ms ease !important;
+        display: block !important;
+        margin: 12px auto !important; /* center the button */
+      }
+      div.stButton > button[kind="secondaryFormSubmit"]:hover{
+        transform: translateY(-1px) !important;
+        box-shadow: 0 10px 26px rgba(0,0,0,.20) !important;
+      }
+      div.stButton > button[kind="secondaryFormSubmit"]:active{
+        transform: translateY(0) scale(.98) !important;
+        box-shadow: 0 6px 16px rgba(0,0,0,.16) !important;
+      }
+
+      /* Center the Turnstile widget + its note and align submit button */
+      .verify-wrap { text-align: center !important; margin-top: 8px; }
+      .verify-title { font-weight: 600; margin-bottom: 6px; }
+      .verify-note  { text-align: center !important; margin-top: 4px; color:#6b7280; }
+      
+      .stComponent iframe[src*="turnstile.html"]{
+        display:block;
+        margin: 8px auto 6px auto !important;  /* tighter bottom margin */
+      }
 
       /* Mobile menu (hamburger) */
       .mmenu-toggle{ display:none; }
@@ -395,7 +515,8 @@ st.markdown(
       
       /* Phones & small tablets: allow Streamlit’s default collapsible sidebar */
       @media (max-width: 999px){
-        /* let Streamlit handle transform/visibility; just keep a comfortable width */
+        /* Let Streamlit handle open/close animations and visibility.
+           We only give the drawer a comfortable width and ensure the toggle is visible. */
         section[data-testid="stSidebar"]{
           min-width: 280px !important;
           width: 280px !important;
@@ -453,6 +574,29 @@ st.markdown(
         .tool-detail-left{ border-right: none; padding-right: 0; }
         .tool-detail-right{ padding-left: 0; margin-top: 8px; }
         .tool-detail-right h4{ margin-top: 6px; }
+      }
+
+      /* ===== Mobile spacing tweaks: navbar + banner + content ===== */
+      @media (max-width: 860px){
+        /* Shorter fixed topbar, which also reduces the spacer below it */
+        :root{ --topbar-height: 90px; }
+
+        /* Pull the main content up a bit on phones */
+        .block-container { padding-top: 0.1rem !important; }
+
+        /* Make the banner shorter and tighten its margins/padding */
+        .hero{
+          height: 140px !important;    /* override inline height from Python */
+          margin: 4px 0 2px 0;         /* less whitespace above/below */
+          padding: 10px 14px;           /* slightly tighter inside */
+        }
+        .hero .brand img{
+          height: 72px;                 /* smaller FutureMed logo on mobile */
+          margin-left: 12px;            /* less left offset on phones */
+        }
+
+        /* The fixed topbar's inner container can be a hair tighter on phones */
+        .topbar .inner { padding-left: 10px; padding-right: 12px; }
       }
     </style>
     """,
@@ -544,7 +688,7 @@ def tool_card_html(tool: pd.Series, badges: dict[str, dict[int, list[str]]]) -> 
 
     # single-line HTML to avoid Markdown’s code-block interpretation of indented lines
     return (
-        f'<a class="tool-card-link" href="?page=tool&id={tid}" style="display:block; text-decoration:none; color:inherit;">'
+        f'<a class="tool-card-link" href="?page=tool&id={tid}" target="_self" style="display:block; text-decoration:none; color:inherit;">'
         f'  <div class="tool-card">'
         f'    <img class="tool-image" loading="lazy" decoding="async" src="{img_url}">'
         f'    <div class="tool-body">'
@@ -976,7 +1120,21 @@ def save_submission_files(tool_name: str, link: str, payload: dict) -> Path:
     NOTE: We intentionally do **not** store contact emails until a GDPR/cookie
     policy is in place. See `suggest_page()` for the commented widget.
     """
-    SUBMIT_DIR.mkdir(parents=True, exist_ok=True)
+    # Ensure directory exists and is writable; fall back to /tmp if needed
+    try:
+        SUBMIT_DIR.mkdir(parents=True, exist_ok=True)
+        test_path = SUBMIT_DIR / ".writetest"
+        with test_path.open("w") as _f:
+            _f.write("ok")
+        try:
+            test_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    except Exception:
+        # Final fallback inside the container
+        fallback = Path("/tmp/adapt-tools-submissions").resolve()
+        fallback.mkdir(parents=True, exist_ok=True)
+        globals()["SUBMIT_DIR"] = fallback  # redirect for this process
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     uid = uuid.uuid4().hex[:8]
     base = SUBMIT_DIR / f"{ts}_{uid}"
@@ -1064,24 +1222,6 @@ db_url = URL.create(
 )
 engine = create_engine(db_url, pool_pre_ping=True)
 
-# ---------- APP VERSION ----------
-def _read_version() -> str:
-    # Prefer env injected by Docker build; fallback to VERSION file; finally a dev default
-    v = os.getenv("APP_VERSION", "").strip()
-    if v:
-        return v
-    try:
-        ver_path = (BASE_DIR / ".." / "VERSION").resolve()
-        return ver_path.read_text(encoding="utf-8").strip()
-    except Exception:
-        return "0.0.0-dev"
-
-def _read_rev() -> str:
-    rev = os.getenv("GIT_SHA", "").strip()
-    return rev[:7] if rev else ""
-
-APP_VERSION = _read_version()
-APP_REV = _read_rev()
 
 # ---------- DATA LOADERS ----------
 @st.cache_data(ttl=300)
@@ -1351,10 +1491,11 @@ def header_nav(active: str = "Tools",
 
     def nav_link(href: str, label: str, is_active: bool) -> str:
         cls = 'class="active"' if is_active else ""
-        return f'<a href="{href}" {cls}>{label}</a>'
+        # Force same-tab navigation for internal links rendered via markdown
+        return f'<a href="{href}" {cls} target="_self">{label}</a>'
 
     brand_left = (
-        f'<a class="brand-left" href="?page=tools" title="Adapt Tools">'
+        f'<a class="brand-left" href="?page=tools" target="_self" title="Adapt Tools">'
         f'  <img src="{AT_LOGO_WIDE_URL}" alt="adapt tools logo" />'
         f'</a>'
     ) if active != "Tools" else '<span class="brand-left" aria-hidden="true"></span>'
@@ -1390,7 +1531,12 @@ def header_nav(active: str = "Tools",
         '<div class="topbar">'
         '  <div class="inner">'
         '    <div class="filter-anchor"></div>'
-        f'    <span class="brand-center"><img src="{AT_LOGO_URL}" alt="adapt tools"/></span>'
+        f'    {brand_left}'
+        f'    <span class="brand-center">'
+        f'      <a href="?page=tools" target="_self" title="Adapt Tools">'
+        f'        <img src="{AT_LOGO_URL}" alt="adapt tools"/>'
+        f'      </a>'
+        f'    </span>'
         f'    {desktop_nav}'
         f'    {mobile_toggle}'
         '  </div>'
@@ -1414,7 +1560,7 @@ def header_nav(active: str = "Tools",
 def render_fab_suggest(show: bool = True):
     if not show:
         return
-    st.markdown('<a class="fab-suggest" href="?page=suggest">Suggest a tool!</a>', unsafe_allow_html=True)
+    st.markdown('<a class="fab-suggest" href="?page=suggest" target="_self">Suggest a tool!</a>', unsafe_allow_html=True)
 @st.cache_data(ttl=300)
 def options_for(table_name: str) -> list[str]:
     try:
@@ -1552,6 +1698,30 @@ def render_footer():
     """
     st.markdown(html, unsafe_allow_html=True)
 
+def render_turnstile_widget() -> str:
+    """Render real Turnstile component and mirror token into session_state."""
+    site_key = TURNSTILE_SITE_KEY
+    if not site_key:
+        st.error("Turnstile site key is missing on the server. Please contact the site admin.")
+        return ""
+
+    # Use a nonce to force a hard refresh when we need a brand-new token
+    n = st.session_state.get("cf_nonce", 0)
+
+    # Call the component; returns a dict or None
+    data = CF_TURNSTILE(sitekey=site_key, default=None, key=f"turnstile_widget_{n}")
+
+    # Mirror to session for use on submit
+    if isinstance(data, dict):
+        st.session_state["cf_token_data"] = data
+        tok = (data.get("token") or "").strip()
+        ts_ms = int(data.get("ts") or 0)
+        if tok:
+            st.session_state["cf_token"] = tok
+            st.session_state["cf_token_ts_ms"] = ts_ms
+
+
+    return st.session_state.get("cf_token", "")
 
 def suggest_page():
     header_nav(active="Suggest")
@@ -1636,8 +1806,9 @@ def suggest_page():
         )
 
         with col1:
+            st.markdown("**Tool Name & Web Address**")
             tool_name = st.text_input(
-                "Tool name (official)",
+                "Official tool name",
                 help="Official product name as shown on the provider site."
             )
             link = st.text_input(
@@ -1802,97 +1973,145 @@ def suggest_page():
             height=110
         )
 
-        st.markdown("**Verification**")
-        # --- Cloudflare Turnstile widget placeholder ---
-        # To enable later:
-        # token = st.text_input("Turnstile token (hidden)", type="password")
-        # if not verify_turnstile(token):
-        #     errs.append("Please complete verification (Turnstile).")
-        # For now, we keep a simple temporary checkbox:
-        human_check = st.checkbox("I'm not a robot (temporary)")
+        st.markdown(
+            '<div class="verify-wrap">'
+            '  <div class="verify-title">Verification</div>'
+            '  <div class="verify-note">Please check the box below to confirm you are human.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        token_simple = render_turnstile_widget()
 
         submitted = st.form_submit_button("Submit suggestion")
 
-    if submitted:
-        errs = []
-        tool_name = sanitize_text(tool_name, max_len=140)
-        link = link.strip()
+        # # Keep token available after the form block
+        # if token:
+        #     st.session_state["cf_token"] = token
 
-        # Basic required fields
-        if not tool_name:
-            errs.append("Tool name is required.")
-        if not is_valid_url(link):
-            errs.append("Tool URL must start with http(s) and include a host (e.g., https://example.org).")
-        if not human_check:
-            errs.append("Please confirm you're not a robot.")
+        # submitted = st.form_submit_button("Submit suggestion")
+        # token = st.session_state.get("turnstile_token", "")
 
-        # Require taxonomy coverage (multiselects must not be empty)
-        if not ug: errs.append("Please select at least one **User group**.")
-        if not sec: errs.append("Please select at least one **Sector focus**.")
-        if not ttype: errs.append("Please select at least one **Tool type**.")
-        if not tscale_pol: errs.append("Please select at least one **Target scale (political)**.")
-        if not tscale_phy: errs.append("Please select at least one **Target scale (physical)**.")
-        if not tscale: errs.append("Please select at least one **Temporal scale**.")
-        if not tres: errs.append("Please select at least one **Temporal resolution**.")
-        if not meth: errs.append("Please select at least one **Methodological approach**.")
-        if not dutil: errs.append("Please select at least one **Data utilization**.")
-        if not out: errs.append("Please select at least one **Output type**.")
+        if submitted:
+            # Pull the mirrored token + timestamp
+            tok = (st.session_state.get("cf_token") or "").strip()
+            ts_ms = int(st.session_state.get("cf_token_ts_ms") or 0)
+            now_ms = int(time.time() * 1000)
+            age_s = (now_ms - ts_ms) / 1000.0 if ts_ms else None
 
-        # Require single-choice attributes
-        if not acc: errs.append("Please choose an **Accessibility & usability** level.")
-        if not is_multi: errs.append("Please indicate **Multi-language support** (Yes/No).")
-        if is_multi == "Yes" and not langs:
-            errs.append("Please list the **Languages** or change multi-language support to No.")
+            # Helper: always clear token after an attempt, and bump nonce to force widget remount
+            def _reset_turnstile():
+                st.session_state["cf_token"] = ""
+                st.session_state["cf_token_ts_ms"] = 0
+                st.session_state["cf_nonce"] = st.session_state.get("cf_nonce", 0) + 1
 
-        if not cust: errs.append("Please choose a **Customizability** level.")
-        if not integ: errs.append("Please choose an **Integration capability** level.")
-        if not valid: errs.append("Please choose a **Validation & reliability** status.")
-        if not cost: errs.append("Please choose a **Cost** category.")
+            # Require a token
+            if not tok:
+                st.error("Please complete the verification (Turnstile) and try again.")
+                _reset_turnstile()
+                st.stop()
 
-        if not maint: errs.append("Please select at least one **Maintenance** option.")
-        if not supp: errs.append("Please select at least one **Support** option.")
+            # Require freshness (your env defaults to 120s)
+            if age_s is None or age_s > TURNSTILE_MAX_TOKEN_AGE_S:
+                st.warning("Your verification expired. Please tick the Turnstile box again.")
+                _reset_turnstile()
+                st.stop()
 
-        # Geography
-        if not scope:
-            errs.append("Please select a **Primary area scope**.")
-        # 'areas' can remain optional and be elaborated in notes
+            # Server-side verification (single call)
+            ok, resp = verify_turnstile(tok, None)
 
-        if errs:
-            for e in errs: st.error(e)
-            return
+            # Token can be used ONLY once; clear it regardless of outcome
+            _reset_turnstile()
 
-        # assemble payload
-        payload = {
-            "tool_name": tool_name,
-            "link": link,
-            "user_groups": ug,
-            "sectors": sec,
-            "tool_types": ttype,
-            "target_scale_political": tscale_pol,
-            "target_scale_physical": tscale_phy,
-            "temporal_scale": tscale,
-            "temporal_resolution": tres,
-            "methodological_approach": meth,
-            "data_utilization": dutil,
-            "output_type": out,
-            "accessibility_and_usability": acc,
-            "is_multi_language": is_multi,
-            "languages": langs,
-            "customizability": cust,
-            "integration_capability": integ,
-            "validation_and_reliability": valid,
-            "cost": cost,
-            "maintenance": maint,
-            "support": supp,
-            "primary_area_scope": scope,
-            "primary_area_of_focus": areas,
-            "notes": sanitize_text(desc, max_len=2000),
-        }
+            if not ok:
+                codes = set((resp or {}).get("error-codes") or [])
+                if "timeout-or-duplicate" in codes:
+                    st.error("Turnstile verification failed (expired or already used). Please verify again and submit.")
+                else:
+                    st.error("Turnstile verification failed. Please try again.")
+                st.caption(f"Debug (verify): {resp}")
+                st.stop()
+            # ---------------- Field validation (runs only if Turnstile OK) ----------------
+            errs = []
+            tool_name_local = sanitize_text(tool_name, max_len=140)
+            link_local = link.strip()
 
-        # Persist on disk only (moderation queue). Nothing goes to MySQL yet.
-        base = save_submission_files(tool_name, link, payload)
-        st.success("Thank you! Your suggestion was saved for moderator review.")
-        st.caption(f"Reference: `{base.name}`. Moderators will validate and import approved entries.")
+            # Basic required fields
+            if not tool_name_local:
+                errs.append("Tool name is required.")
+            if not is_valid_url(link_local):
+                errs.append("Tool URL must start with http(s) and include a host (e.g., https://example.org).")
+
+            # Require taxonomy coverage (multiselects must not be empty)
+            if not ug: errs.append("Please select at least one **User group**.")
+            if not sec: errs.append("Please select at least one **Sector focus**.")
+            if not ttype: errs.append("Please select at least one **Tool type**.")
+            if not tscale_pol: errs.append("Please select at least one **Target scale (political)**.")
+            if not tscale_phy: errs.append("Please select at least one **Target scale (physical)**.")
+            if not tscale: errs.append("Please select at least one **Temporal scale**.")
+            if not tres: errs.append("Please select at least one **Temporal resolution**.")
+            if not meth: errs.append("Please select at least one **Methodological approach**.")
+            if not dutil: errs.append("Please select at least one **Data utilization**.")
+            if not out: errs.append("Please select at least one **Output type**.")
+
+            # Require single-choice attributes
+            if not acc: errs.append("Please choose an **Accessibility & usability** level.")
+            if not is_multi: errs.append("Please indicate **Multi-language support** (Yes/No).")
+            if is_multi == "Yes" and not langs:
+                errs.append("Please list the **Languages** or change multi-language support to No.")
+
+            if not cust: errs.append("Please choose a **Customizability** level.")
+            if not integ: errs.append("Please choose an **Integration capability** level.")
+            if not valid: errs.append("Please choose a **Validation & reliability** status.")
+            if not cost: errs.append("Please choose a **Cost** category.")
+
+            if not maint: errs.append("Please select at least one **Maintenance** option.")
+            if not supp: errs.append("Please select at least one **Support** option.")
+
+            # Geography
+            if not scope:
+                errs.append("Please select a **Primary area scope**.")
+            # 'areas' can remain optional and be elaborated in notes
+
+            if errs:
+                for e in errs:
+                    st.error(e)
+                st.stop()
+
+            # ---------------- Persist submission ----------------
+            payload = {
+                "tool_name": tool_name_local,
+                "link": link_local,
+                "user_groups": ug,
+                "sectors": sec,
+                "tool_types": ttype,
+                "target_scale_political": tscale_pol,
+                "target_scale_physical": tscale_phy,
+                "temporal_scale": tscale,
+                "temporal_resolution": tres,
+                "methodological_approach": meth,
+                "data_utilization": dutil,
+                "output_type": out,
+                "accessibility_and_usability": acc,
+                "is_multi_language": is_multi,
+                "languages": langs,
+                "customizability": cust,
+                "integration_capability": integ,
+                "validation_and_reliability": valid,
+                "cost": cost,
+                "maintenance": maint,
+                "support": supp,
+                "primary_area_scope": scope,
+                "primary_area_of_focus": areas,
+                "notes": sanitize_text(desc, max_len=2000),
+            }
+
+            base = save_submission_files(tool_name_local, link_local, payload)
+            st.success("Thank you! Your suggestion was saved for moderator review.")
+            st.caption(f"Reference: `{base.name}`. Moderators will validate and import approved entries.")
+            # Clear token after a successful submit to avoid re-use on rerun
+            st.session_state.pop("cf_token", None)
+
+    # (Removed duplicate Turnstile render and post-submit logic per instructions)
 
     render_footer()
 
@@ -2121,7 +2340,7 @@ def list_tools_page():
     selections, tables, search_q, geo = sidebar_filters(tools)
 
     st.title("Climate Change Adaptation Tools Catalog")
-    st.write("Use the filters on the left to explore the catalog.")
+    st.write("Use the filters in the sidebar to explore the catalog.")
 
     filtered = apply_filters(tools, selections, tables, search_q, geo)
     st.caption(f"{len(filtered)} result(s)")
