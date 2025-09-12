@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body { margin:0; padding:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; min-height: 200px; }
+      .wrap { padding:10px; text-align:center; }
+      #status { font-size: 13px; color: #444; margin-bottom: 8px; }
+      #cf-container { display:inline-block; min-height: 86px; }
+    </style>
+    <!-- Minimal Streamlit bridge (no CDN) -->
+    <script>
+      (function(){
+        const PARENT = window.parent;
+        function post(type, data){
+          try { PARENT.postMessage(Object.assign({isStreamlitMessage:true, type}, data || {}), "*"); } catch(e) {}
+        }
+        // Expose a tiny subset of the Streamlit API used by this component
+        window.Streamlit = {
+          setComponentReady: () => post("streamlit:componentReady", { apiVersion: 1 }),
+          setFrameHeight: (h) => {
+            const height = Math.max(0, Math.floor(h || document.documentElement.scrollHeight || document.body.scrollHeight || 0));
+            post("streamlit:setFrameHeight", { height });
+          },
+          setComponentValue: (val) => post("streamlit:setComponentValue", { value: val, dataType: "json" }),
+          // Lightweight event bridge compatible with streamlit-component-lib usage
+          events: {
+            addEventListener: (type, fn) => {
+              window.addEventListener("message", (ev) => {
+                const msg = ev && ev.data;
+                if (!msg || msg.type !== type) return;
+                // Match the shape expected by our code: event.detail.args
+                fn({ detail: { args: (msg.args || {}) } });
+              });
+            }
+          },
+          RENDER_EVENT: "streamlit:render"
+        };
+      })();
+    </script>
+    <script>
+      // ===== Helpers =====
+      const $ = (id) => document.getElementById(id);
+      function setStatus(msg){
+        try { $('status').textContent = msg; } catch(e) {}
+      }
+      function qs(name){
+        const m = new URLSearchParams(location.search).get(name);
+        return m && m.trim() ? m.trim() : null;
+      }
+      function safeSend(val){
+        if (!window.Streamlit) return; // no-op in direct-test mode
+        try {window.Streamlit.setComponentValue(val); } catch(e) {}
+        setTimeout(() => {try { window.Streamlit.setComponentValue(val); } catch(e) {} }, 40);
+        setTimeout(() => {try { window.Streamlit.setComponentValue(val); } catch(e) {} }, 160);
+      }
+
+      // ===== State =====
+      let sitekey = null;
+      let apiReady = false;
+      let rendered = false;
+
+      // Direct-test fallback: allow ?sk=SITE_KEY in the URL
+      const testSk = qs('sk');
+      if (testSk) {
+        sitekey = testSk;
+        setStatus('Mode: direct test (sitekey from ?sk=...) — waiting for Turnstile API…');
+      } else {
+        setStatus('Mode: Streamlit component — awaiting props & API…');
+      }
+
+      // Announce readiness once shortly after load
+      setTimeout(() => {
+        if (window.Streamlit) {
+          try { window.Streamlit.setComponentReady(); } catch(e) {}
+          try { window.Streamlit.setFrameHeight(140); } catch(e) {}
+        }
+      }, 200);
+
+      // Define onload BEFORE loading Turnstile API (Cloudflare checks immediately)
+      function cf_onload(){
+        apiReady = true;
+        setStatus('Turnstile API loaded. ' + (sitekey ? 'Rendering…' : 'Waiting for sitekey…'));
+        tryRender();
+      }
+      window.cf_onload = cf_onload; // ensure global
+
+      let _lastToken = "";
+      function tryRender(){
+        if (rendered) return;
+        if (!apiReady || !sitekey) return;
+        if (!window.turnstile || !$('cf-container')) return;
+
+        rendered = true;
+        setStatus('Rendering Turnstile…');
+        window.turnstile.render('#cf-container', {
+          sitekey: sitekey,
+          callback: token => {
+            if (token && token === _lastToken) return;
+            _lastToken = token || "";
+            setStatus('Verified ✔︎');
+            safeSend({status:'ok', token, ts: Date.now()});
+          },
+          'expired-callback': () => { setStatus('Expired — please redo.'); safeSend({status:'expired', token:'', ts:0}); },
+          'error-callback':   () => { setStatus('Error — please retry.');  safeSend({status:'error', token:'', ts:0}); }
+        });
+
+        // Announce frame height to Streamlit (guarded)
+        try { if (window.Streamlit) window.Streamlit.setFrameHeight(140); } catch(e) {}
+      }
+
+      // Attach Streamlit listener when/if the bridge is present
+      function attachStreamlitListener(attempt=0){
+        const MAX = 40; // ~10 seconds
+        if (!(window.Streamlit && window.Streamlit.events && window.Streamlit.events.addEventListener)) {
+          if (attempt === 0) setStatus('Mode: Streamlit component — waiting for bridge…');
+          if (attempt < MAX) return void setTimeout(() => attachStreamlitListener(attempt+1), 250);
+          setStatus('Streamlit bridge not detected — if you see this inside the app, CSP or network may be blocking index.umd.js');
+          return;
+        }
+
+        window.Streamlit.events.addEventListener(window.Streamlit.RENDER_EVENT, (event) => {
+          const args = (event && event.detail && event.detail.args) ? event.detail.args : {};
+          if (args && args.sitekey) sitekey = args.sitekey;
+          if (!testSk) {
+            setStatus('Mode: Streamlit component — ' + (sitekey ? 'got sitekey; waiting for API…' : 'waiting for sitekey…'));
+          }
+          tryRender();
+          setTimeout(tryRender, 120);
+          setTimeout(tryRender, 400);
+        });
+      }
+      attachStreamlitListener();
+    </script>
+    <!-- Cloudflare Turnstile API (explicit render) — load AFTER defining cf_onload -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=cf_onload&render=explicit" async defer></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div id="status">Loading…</div>
+      <div id="cf-container"></div>
+      <noscript><div style="color:#b00;margin-top:8px;">JavaScript is disabled; Turnstile cannot load.</div></noscript>
+    </div>
+  </body>
+</html>
