@@ -4,7 +4,7 @@ services:
     image: nginx:1.25-alpine
     container_name: adapt-web
     ports:
-      - "8080:80"              # change to 80 on a VPS once you're ready
+      - "127.0.0.1:8080:80"
     depends_on:
       - app
     volumes:
@@ -32,8 +32,8 @@ services:
       - STREAMLIT_SERVER_ENABLECORS=false
       - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
     volumes:
-      - ./app:/app/app:ro          
-      - ./public:/app/public    
+      - ./app:/app/app:ro
+      - ./public:/app/public
       - ./data:/app/data:ro
       - ./app/.streamlit:/home/appuser/.streamlit:ro
       - ./data/submissions:/app/submissions:rw
@@ -65,10 +65,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s    
-    # For local dev only; remove in production or bind to 127.0.0.1
-    ports:
-      - "3306:3306"
+      start_period: 20s
 
   phpmyadmin:
     image: phpmyadmin:5.2
@@ -76,7 +73,7 @@ services:
     environment:
       - PMA_HOST=mysql
     ports:
-      - "8081:80"
+      - "127.0.0.1:8081:80"
     depends_on:
       - mysql
 
